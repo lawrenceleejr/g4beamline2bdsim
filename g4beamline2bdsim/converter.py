@@ -33,6 +33,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from .expr import evaluate as _eval_expr
 from .model import BdsimModel, Element
 from .parser import G4BLCommand
 from .units import C_LIGHT
@@ -88,11 +89,10 @@ def _to_float(value: Optional[str], default: float = 0.0) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
-        # Allow simple expressions that survived parameter expansion.
-        try:
-            return float(eval(value, {"__builtins__": {}}, {}))  # noqa: S307
-        except Exception:
-            return default
+        # Allow numeric expressions that survived parameter expansion, evaluated
+        # safely (no arbitrary code execution).
+        result = _eval_expr(value)
+        return result if result is not None else default
 
 
 def _sanitize(name: str) -> str:
@@ -740,14 +740,33 @@ class Converter:
         if self._n_events is not None:
             opt["ngenerate"] = self._n_events
 
-    @staticmethod
-    def _map_physics(name: str) -> str:
+    def _map_physics(self, name: str) -> str:
         if name.lower() == "default":
             return "g4FTFP_BERT"
-        # BDSIM wraps Geant4 reference lists with a 'g4' prefix.
         if name.startswith("g4"):
             return name
-        return "g4" + name
+        # Strip a trailing Geant4 EM-option suffix (_EMV/_EMX/.../_SS) to check
+        # the base reference-list name.
+        base = re.sub(r"_(EMV|EMX|EMY|EMZ|LIV|PEN|GS|SS|WVI|LE)$", "", name)
+        if base in _VALID_G4_LISTS:
+            # BDSIM wraps Geant4 reference lists with a 'g4' prefix.
+            return "g4" + name
+        self.model.warn(
+            f"physics list '{name}' is not a valid Geant4 reference list in "
+            f"BDSIM; using g4FTFP_BERT. Set option,physicsList=... manually if "
+            f"you need a specific list."
+        )
+        return "g4FTFP_BERT"
+
+
+# Valid Geant4 reference physics-list base names accepted by BDSIM (with the
+# 'g4' prefix).  Bare 'QGSP' and similar removed-from-Geant4 names are excluded.
+_VALID_G4_LISTS = {
+    "FTFP_BERT", "FTFP_BERT_HP", "FTFP_BERT_TRV", "FTFP_INCLXX", "FTF_BIC",
+    "LBE", "QBBC", "QGSP_BERT", "QGSP_BERT_HP", "QGSP_BIC", "QGSP_BIC_HP",
+    "QGSP_BIC_AllHP", "QGSP_FTFP_BERT", "QGSP_INCLXX", "QGSP_INCLXX_HP",
+    "QGS_BIC", "Shielding", "ShieldingLEND", "NuBeam", "FTFQGSP_BERT",
+}
 
 
 # Element-definition command names recognised by the converter.

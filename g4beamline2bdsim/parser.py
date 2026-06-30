@@ -28,6 +28,8 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from .expr import evaluate as _eval_expr, has_operator as _has_operator
+
 
 @dataclass
 class G4BLCommand:
@@ -51,6 +53,13 @@ class G4BLCommand:
 
 
 _PARAM_REF = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
+
+
+def _format_eval(value: float) -> str:
+    """Render an evaluated number compactly (integers without a trailing .0)."""
+    if value == int(value) and abs(value) < 1e15:
+        return str(int(value))
+    return repr(value)
 
 
 class G4BLParser:
@@ -174,7 +183,15 @@ class G4BLParser:
         for key in cmd.param_order:
             if only_if_unset and key in self.params:
                 continue
-            self.params[key] = cmd.params[key]
+            value = cmd.params[key]
+            # G4beamline evaluates a param value when it is a numeric expression
+            # with an operator (sec. 5.1).  Store the evaluated number so later
+            # $references resolve to a value, not an expression string.
+            if _has_operator(value):
+                result = _eval_expr(value)
+                if result is not None:
+                    value = _format_eval(result)
+            self.params[key] = value
 
 
 def parse_g4bl(text: str) -> Tuple[List[G4BLCommand], Dict[str, str]]:
