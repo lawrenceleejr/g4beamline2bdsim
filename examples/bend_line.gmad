@@ -35,8 +35,8 @@ beam, particle="proton",
 ! ---- options ----
 option, physicsList="g4QGSP_BERT",
         ngenerate=500,
-        beampipeRadius=2200*mm,
-        horizontalWidth=4600*mm;
+        beampipeRadius=200*mm,
+        horizontalWidth=600*mm;
 
 ! ---- samplers ----
 sample, range=D1;

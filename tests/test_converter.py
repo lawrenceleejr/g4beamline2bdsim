@@ -221,13 +221,29 @@ def test_beampipe_sized_from_aperture():
     reference referenceMomentum=1000 particle=proton
     genericquad Q fieldLength=300 apertureRadius=120 ironRadius=400
     place Q rename=Q1 gradient=1 z=300
+    virtualdetector D radius=200 length=1
+    place D rename=Det z=600
     """
     m = convert(text)
-    # beampipe radius takes the largest radius (ironRadius=400 here).
-    assert m.options["beampipeRadius"] == (400.0, "mm")
+    # beampipe radius takes the largest genuine aperture (detector radius=200),
+    # NOT the iron outer radius (400).
+    assert m.options["beampipeRadius"] == (200.0, "mm")
     # horizontalWidth must exceed 2*beampipeRadius.
     hw = m.options["horizontalWidth"][0]
-    assert hw > 2 * 400.0
+    assert hw > 2 * 200.0
+
+
+def test_sectorbend_arc_radius_not_used_as_aperture():
+    # fieldOuterRadius is the bend arc radius, not a transverse aperture.
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    idealsectorbend B angle=10 By=0.5 fieldCenterRadius=2000 \
+        fieldOuterRadius=2200 fieldHeight=200
+    place B z=2000
+    """
+    m = convert(text)
+    # Only fieldHeight/2 (=100) should drive the beampipe, not 2200.
+    assert m.options["beampipeRadius"][0] <= 100.0
 
 
 def test_invalid_physics_list_fallback():

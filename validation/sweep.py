@@ -121,8 +121,14 @@ def analyse(path: str, run_bdsim: bool, run_g4bl: bool, workroot: str) -> Result
             r.bdsim_ok = ("RC=0" in res.stdout) and ("End of Run" in log)
             if not r.bdsim_ok:
                 for line in log.splitlines():
-                    if any(k in line.lower() for k in
-                           ("error", "malformed", "unexpected", "fatal")):
+                    low = line.lower()
+                    # Skip the harmless ROOT autoload/cling warnings.
+                    if any(s in line for s in
+                           ("cling::", "FileEntry", "autoload")):
+                        continue
+                    if any(k in low for k in
+                           ("error", "malformed", "unexpected", "fatal",
+                            "required to be set", "must be", "unknown")):
                         r.bdsim_err = line.strip()[:160]
                         break
         except subprocess.TimeoutExpired:

@@ -329,16 +329,19 @@ class Converter:
         return f"{base}_{count}"
 
     def _record_aperture(self, definition: G4BLCommand) -> None:
-        """Track the largest transverse radius referenced by any element."""
+        """Track the largest transverse *aperture* radius referenced.
+
+        Only genuine transverse apertures are used -- NOT yoke/coil outer radii
+        (``ironRadius``, ``outerRadius``) or sector-bend arc radii
+        (``fieldInnerRadius``/``fieldCenterRadius``/``fieldOuterRadius``), which
+        describe curvature, not the beam aperture.
+        """
         g = definition.get
-        candidates = [
-            g("apertureRadius"), g("radius"), g("outerRadius"),
-            g("fieldOuterRadius"), g("ironRadius"),
-        ]
-        for c in candidates:
-            if c is not None:
-                self._max_aperture_mm = max(self._max_aperture_mm, _to_float(c))
-        # Half-extents for box/height/width definitions.
+        for key in ("apertureRadius", "radius"):
+            v = g(key)
+            if v is not None:
+                self._max_aperture_mm = max(self._max_aperture_mm, _to_float(v))
+        # Half-extents of rectangular field/box apertures.
         for key in ("fieldHeight", "fieldWidth", "height", "width"):
             v = g(key)
             if v is not None:
@@ -743,25 +746,35 @@ class Converter:
             beam["distrType"] = "reference"
 
     def _copy_sigma(self, cmd: G4BLCommand, beam) -> None:
+        # In G4beamline a NEGATIVE sigma denotes a flat/uniform distribution
+        # with |sigma| as the half-width.  BDSIM's gauss needs a positive RMS,
+        # so we use |sigma| (approximating flat as gaussian) and warn once.
         sx = cmd.get("sigmaX")
         sy = cmd.get("sigmaY")
         sxp = cmd.get("sigmaXp")
         syp = cmd.get("sigmaYp")
         st = cmd.get("sigmaT")
         sp = cmd.get("sigmaP")
+        flat = any(s is not None and _to_float(s) < 0
+                   for s in (sx, sy, sxp, syp, st, sp))
+        if flat:
+            self.model.warn(
+                "beam has negative sigma(s) (G4beamline flat distribution); "
+                "converted to a gaussian with |sigma| as RMS."
+            )
         if sx is not None:
-            beam["sigmaX"] = (_to_float(sx), "mm")
+            beam["sigmaX"] = (abs(_to_float(sx)), "mm")
         if sy is not None:
-            beam["sigmaY"] = (_to_float(sy), "mm")
+            beam["sigmaY"] = (abs(_to_float(sy)), "mm")
         if sxp is not None:
-            beam["sigmaXp"] = _to_float(sxp)
+            beam["sigmaXp"] = abs(_to_float(sxp))
         if syp is not None:
-            beam["sigmaYp"] = _to_float(syp)
+            beam["sigmaYp"] = abs(_to_float(syp))
         if st is not None:
-            beam["sigmaT"] = (_to_float(st), "ns")
+            beam["sigmaT"] = (abs(_to_float(st)), "ns")
         if sp is not None and self._momentum_mev:
             # Relative momentum spread ~ relative energy spread (ultra-rel.).
-            beam["sigmaE"] = _to_float(sp) / self._momentum_mev
+            beam["sigmaE"] = abs(_to_float(sp)) / self._momentum_mev
 
     def _build_options_block(self) -> None:
         opt = self.model.options
