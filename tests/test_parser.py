@@ -47,6 +47,20 @@ def test_quoted_value():
     assert cmds[0].params["color"] == "1 0 0"
 
 
+def test_hash_in_token_not_comment():
+    # '#' inside a token (rename=Det#) is not a comment; '#' after space is.
+    cmds, _ = parse_g4bl("place Det rename=Det# z=10  # a comment")
+    place = cmds[0]
+    assert place.params["rename"] == "Det#"
+    assert place.params["z"] == "10"
+
+
+def test_leading_hash_is_comment():
+    cmds, _ = parse_g4bl("# whole line comment\nplace Det z=1")
+    assert len(cmds) == 1
+    assert cmds[0].name == "place"
+
+
 def test_nested_param_reference():
     text = "param A=2\nparam B=$A\nbox X width=$B\n"
     cmds, params = parse_g4bl(text)

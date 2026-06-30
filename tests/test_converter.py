@@ -201,6 +201,71 @@ def test_missing_momentum_warns():
     assert get(m, "Q1").comment is not None
 
 
+def test_rename_hash_numbering():
+    # rename=Det# -> Det1, Det2, ... (1-based placement number).
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    virtualdetector Det radius=100 length=1
+    place Det z=1000 rename=Det#
+    place Det z=2000 rename=Det#
+    place Det z=3000 rename=Det#
+    """
+    m = convert(text)
+    assert "Det1" in m.samplers
+    assert "Det2" in m.samplers
+    assert "Det3" in m.samplers
+
+
+def test_beampipe_sized_from_aperture():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    genericquad Q fieldLength=300 apertureRadius=120 ironRadius=400
+    place Q rename=Q1 gradient=1 z=300
+    """
+    m = convert(text)
+    # beampipe radius takes the largest radius (ironRadius=400 here).
+    assert m.options["beampipeRadius"] == (400.0, "mm")
+    # horizontalWidth must exceed 2*beampipeRadius.
+    hw = m.options["horizontalWidth"][0]
+    assert hw > 2 * 400.0
+
+
+def test_invalid_physics_list_fallback():
+    text = """
+    physics QGSP
+    reference referenceMomentum=200 particle=mu+
+    genericquad Q fieldLength=300
+    place Q rename=Q1 gradient=1 z=300
+    """
+    m = convert(text)
+    assert m.options["physicsList"] == "g4FTFP_BERT"
+    assert any("physics list" in w for w in m.warnings)
+
+
+def test_valid_physics_list_prefixed():
+    text = """
+    physics QGSP_BERT
+    reference referenceMomentum=200 particle=mu+
+    genericquad Q fieldLength=300
+    place Q rename=Q1 gradient=1 z=300
+    """
+    m = convert(text)
+    assert m.options["physicsList"] == "g4QGSP_BERT"
+
+
+def test_param_expression_drives_k1():
+    # gradient given as an expression referencing a param.
+    text = """
+    param G=3.0
+    reference referenceMomentum=1000 particle=proton
+    genericquad Q fieldLength=300
+    place Q rename=Q1 gradient=$G*2 z=300
+    """
+    m = convert(text)
+    brho = 1.0 / 0.299792458
+    assert get(m, "Q1").params["k1"] == pytest.approx(6.0 / brho)
+
+
 def test_negative_particle_charge_rigidity():
     # electrons: rigidity uses |q|, so k1 stays positive for positive gradient.
     text = """
