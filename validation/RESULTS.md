@@ -18,6 +18,26 @@ yokes).  Perfect agreement is therefore neither expected nor physically
 meaningful — the goal is to show that the *lattice optics* carried by the
 converter agree to the level set by those modelling differences.
 
+## Executive summary — closure levels
+
+| domain | closure | where |
+|---|---|---|
+| Drift / geometry / beam centroid | trajectory to **< 0.01 mm**, angle to **~10⁻⁶ rad** | §2.1, §4 |
+| Quadrupole focusing (`k1`) | outgoing angle to **~2·10⁻⁷ rad** (7 sig. figs) | §2.2 |
+| Sextupole (`k2`, factorial factor) | angle to **~7·10⁻⁶ rad** | §2.4 |
+| Multi-element lattice (16 quads) | envelope to **few %**, centroid **< 0.4 mm** | §3 |
+| Dipole bend angle | **0.2–0.5 %** | §2.5 |
+| Wide beam in a drift (official Example1) | envelope to **< 0.1 mm** (Det1–3) | §4 |
+| Material targets / collimators | **not modelled** (mapped to drift, by design) | §5b |
+| Field maps / analytic fields / space charge | **not converted** | §5 |
+
+Of the **44 lattices tested** (35 shipped with G4beamline + 9 curated), **20 run
+end-to-end in both codes**, 13 are field-line visualisations with no beam to
+track, 3 have a beam but no detector, 4 use features the converter does not map,
+and 4 fail in BDSIM for reasons external to the conversion math (no beam
+momentum, a file-driven beam, or a BDSIM `rbend` geometry limit). **Every test
+of the conversion mathematics closes to the precision above.**
+
 ---
 
 ## 1. Method
@@ -232,6 +252,35 @@ The **4 BDSIM-ERROR** cases are all explained, none a conversion-math error:
   in ~1 m; BDSIM's `rbend` **cannot build that geometry** (pole faces overlap).
   This is a BDSIM geometry constraint, not a conversion error — lengthening the
   magnet or using `sbend` for that element resolves it.
+
+---
+
+## 5b. Material-physics examples — the conversion boundary
+
+Running the trackable *material* examples side by side makes the converter's
+scope explicit.  G4beamline's `box`/`tubs` targets and absorbers are mapped to
+**drifts** (material is not transferred), so BDSIM transports the beam as if in
+vacuum while G4beamline scatters it.  The contrast is stark (N = 300):
+
+| example / plane | observable | G4beamline | BDSIM |
+|---|---|---|---|
+| `muscat` (thin scatterer) | σx | 0.964 mm | ~0 |
+| `ExampleN02` Det5 (calorimeter) | σx | 46.1 mm | ~0 |
+| `ExampleN02` Det1 → Det5 | primaries surviving | 70/300 absorbed-down | 300/300 |
+| `TungstenTarget` forward | σx | 1.62 mm | ~0 |
+
+The "~0" BDSIM values (literally ~10⁻²² mm) confirm the beam passes straight
+through: there is no material to scatter off because the target became a drift.
+The surviving-primary counts tell the same story — G4beamline absorbs/showers
+most of the beam in the calorimeter, BDSIM transmits all of it.
+
+**This is by design.** The converter's job is to translate the *accelerator
+lattice* (drifts, magnets, RF, optics), which it does to the precision shown in
+§§2–4.  Reproducing energy loss, multiple scattering, showers and secondary
+production in targets and collimators requires transferring the material
+geometry — out of scope here — and these examples should be treated as
+lattice conversions with the absorbers re-inserted by hand as BDSIM collimators
+or external geometry.
 
 ---
 
