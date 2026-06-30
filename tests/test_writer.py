@@ -16,6 +16,22 @@ def test_format_value_units():
     assert _format_value(1000) == "1000"
 
 
+def test_gmad_array_not_quoted():
+    # knl/ksl arrays must be emitted raw, not as a quoted string.
+    assert _format_value("{1, 2, 3}") == "{1, 2, 3}"
+
+
+def test_combined_multipole_renders_unquoted_knl():
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    multipole MP fieldLength=200 quadrupole=2.0 sextupole=50.0
+    place MP rename=M1 z=300
+    """
+    out = render(text)
+    assert "knl={" in out
+    assert 'knl="{' not in out
+
+
 def test_full_render_is_valid_gmad_shape():
     text = """
     physics QGSP_BERT

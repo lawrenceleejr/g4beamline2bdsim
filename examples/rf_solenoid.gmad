@@ -16,7 +16,7 @@ RF1: rfcavity, l=430*mm, E=6.88*MV, frequency=0.201*GHz, phase=0.6981317008;
 drift_3: drift, l=170*mm;
 RF2: rfcavity, l=430*mm, E=6.88*MV, frequency=0.201*GHz, phase=0.6981317008;
 drift_4: drift, l=285*mm;
-M1: multipole, l=200*mm, knl="{0.599584916, 29.9792458}";
+M1: multipole, l=200*mm, knl={0.599584916, 29.9792458};
 drift_5: drift, l=499.5*mm;
 DEnd: marker;  ! virtualdetector -> sampler
 

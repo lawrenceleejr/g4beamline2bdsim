@@ -49,6 +49,18 @@ def run(cmd: List[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def _force_ascii_detectors(text: str) -> str:
+    """Ensure every virtualdetector/detector definition writes ASCII output."""
+    out = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        first = stripped.split()[0] if stripped.split() else ""
+        if first in ("virtualdetector", "detector") and "format=" not in line:
+            line = line.rstrip() + " format=ascii"
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
 def docker_run(image: str, workdir_mount: str, script: str,
                entrypoint: Optional[str] = "bash", extra: Optional[List[str]] = None,
                timeout: int = 1200) -> subprocess.CompletedProcess:
@@ -131,16 +143,20 @@ def bdsim_stats(path: str, pdgid: int) -> Dict[str, float]:
 
 
 def compare_case(g4bl_path: str, n_events: int, workroot: str,
-                 atol_mm: float, atol_ang: float, rtol: float) -> bool:
+                 atol_mm: float, atol_ang: float, rtol: float,
+                 smoke: bool = False) -> bool:
     name = os.path.splitext(os.path.basename(g4bl_path))[0]
     work = os.path.join(workroot, name)
     if os.path.exists(work):
         shutil.rmtree(work)
     os.makedirs(work)
 
-    # Stage inputs.
+    # Stage inputs.  Force ASCII detector output so we can parse it on the host
+    # (g4beamline defaults to ROOT otherwise).
     g4bl_name = os.path.basename(g4bl_path)
-    shutil.copy(g4bl_path, os.path.join(work, g4bl_name))
+    raw = open(g4bl_path).read()
+    with open(os.path.join(work, g4bl_name), "w") as fh:
+        fh.write(_force_ascii_detectors(raw))
     shutil.copy(os.path.join(HERE, "bdsim_dump.py"),
                 os.path.join(work, "bdsim_dump.py"))
 
@@ -179,15 +195,24 @@ def compare_case(g4bl_path: str, n_events: int, workroot: str,
             g4bl_ascii.parse_bltrackfile(g4_txt), pdgid)
         g_stats = g4bl_ascii.stats(g_tracks)
         b_stats = bdsim_stats(bd_dat, pdgid)
-        ok &= _report(sampler, g_stats, b_stats, atol_mm, atol_ang, rtol)
+        ok &= _report(sampler, g_stats, b_stats, atol_mm, atol_ang, rtol, smoke)
     return ok
 
 
-def _report(sampler, g, b, atol_mm, atol_ang, rtol) -> bool:
+def _report(sampler, g, b, atol_mm, atol_ang, rtol, smoke=False) -> bool:
     print(f"  [{sampler}] g4bl n={g.get('n')}  bdsim n={b.get('n')}")
     if g.get("n", 0) == 0 or b.get("n", 0) == 0:
-        print("    -> no primaries to compare")
-        return False
+        # In smoke mode, both codes ran; a plane with no primaries (e.g. fully
+        # stopped in iron/material) is reported but not a hard failure.
+        print("    -> no primaries at this plane"
+              + (" (smoke: informational)" if smoke else ""))
+        return smoke
+    if smoke:
+        for key in ("mean_x_mm", "mean_y_mm", "mean_xp", "mean_yp",
+                    "sigma_x_mm", "sigma_y_mm"):
+            print(f"    -- {key:12s} g4bl={g.get(key,0):+.5g} "
+                  f"bdsim={b.get(key,0):+.5g}")
+        return True
     fields = [
         ("mean_x_mm", atol_mm, "mm"),
         ("mean_y_mm", atol_mm, "mm"),
@@ -221,6 +246,9 @@ def main(argv=None) -> int:
                     help="absolute angle tolerance [rad]")
     ap.add_argument("--rtol", type=float, default=0.05,
                     help="relative tolerance")
+    ap.add_argument("--smoke", action="store_true",
+                    help="smoke mode: just confirm both codes run and produce "
+                         "output; report stats without enforcing tolerances")
     args = ap.parse_args(argv)
 
     os.makedirs(args.workroot, exist_ok=True)
@@ -229,7 +257,8 @@ def main(argv=None) -> int:
     for case in args.cases:
         try:
             ok = compare_case(case, args.n_events, args.workroot,
-                              args.atol_mm, args.atol_ang, args.rtol)
+                              args.atol_mm, args.atol_ang, args.rtol,
+                              smoke=args.smoke)
         except Exception as exc:  # noqa: BLE001
             print(f"  ERROR: {exc}")
             ok = False

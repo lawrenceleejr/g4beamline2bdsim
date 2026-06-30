@@ -19,6 +19,9 @@ def _format_value(value: Any) -> str:
         number, unit = value
         return f"{_format_number(number)}*{unit}"
     if isinstance(value, str):
+        # GMAD array literals (e.g. knl={1,2}) are emitted raw, not quoted.
+        if value.startswith("{") and value.endswith("}"):
+            return value
         # Already-quoted strings are passed through; otherwise quote it.
         if value.startswith('"') and value.endswith('"'):
             return value
