@@ -1,0 +1,25 @@
+# Simple FODO cell in G4beamline
+# A 200 MeV/c muon beam through a focusing-defocusing quadrupole cell.
+
+physics QGSP_BERT
+
+param -unset Pz=200.0
+
+# Reference + beam
+reference referenceMomentum=$Pz particle=mu+ beamZ=0
+beam gaussian particle=mu+ nEvents=1000 meanMomentum=$Pz \
+     beamZ=0.0 sigmaX=5.0 sigmaY=5.0 sigmaXp=0.002 sigmaYp=0.002 sigmaP=2.0
+
+# Quadrupole definitions (gradient in T/m)
+genericquad Qfoc fieldLength=300 ironLength=300 ironRadius=200 \
+    apertureRadius=100 kill=1
+genericquad Qdef fieldLength=300 ironLength=300 ironRadius=200 \
+    apertureRadius=100 kill=1
+
+# Detector
+virtualdetector Det radius=150 length=1 format=ascii
+
+# Place a FODO cell: QF - drift - QD - drift, with a detector at the end
+place Qfoc rename=QF gradient=4.5 z=300
+place Qdef rename=QD gradient=-4.5 z=1300
+place Det rename=DetEnd z=2000
