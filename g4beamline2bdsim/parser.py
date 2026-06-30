@@ -86,12 +86,16 @@ class G4BLParser:
     # -- helpers ------------------------------------------------------------
     @staticmethod
     def _strip_comment(line: str) -> str:
-        """Remove a ``#`` comment, respecting quotes."""
+        """Remove a ``#`` comment, respecting quotes.
+
+        Per the G4beamline User's Guide, ``#`` starts a comment only at the start
+        of a line (after optional whitespace) or when preceded by whitespace -
+        a ``#`` embedded in a token (e.g. ``rename=Det#``) is *not* a comment.
+        """
         out = []
         quote = None
-        i = 0
-        while i < len(line):
-            ch = line[i]
+        prev = ""
+        for i, ch in enumerate(line):
             if quote:
                 out.append(ch)
                 if ch == quote:
@@ -100,11 +104,11 @@ class G4BLParser:
                 if ch in ("'", '"'):
                     quote = ch
                     out.append(ch)
-                elif ch == "#":
+                elif ch == "#" and (i == 0 or prev in (" ", "\t")):
                     break
                 else:
                     out.append(ch)
-            i += 1
+            prev = ch
         return "".join(out)
 
     def _logical_lines(self, text: str) -> List[Tuple[int, str]]:

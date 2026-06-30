@@ -129,6 +129,10 @@ class Converter:
         self._coils: Dict[str, G4BLCommand] = {}
         self._placements: List[_Placement] = []
         self._used_names: Dict[str, int] = {}
+        self._place_counts: Dict[str, int] = {}
+        # Largest transverse aperture/detector radius seen [mm]; used to size the
+        # BDSIM beampipe so a wide (vacuum) G4beamline beam is not clipped.
+        self._max_aperture_mm: float = 0.0
 
         # Beam / rigidity state.
         self._momentum_mev: Optional[float] = None
@@ -264,12 +268,21 @@ class Converter:
             )
             return
 
-        # Determine final name.
+        # Determine final name.  G4beamline replaces '#' in a rename with the
+        # (1-based) placement number of that element definition, and a leading
+        # '+' prepends the parent name (no parent here, so just drop it).
         rename = cmd.get("rename")
-        base = rename if rename else def_name
+        self._place_counts[def_name] = self._place_counts.get(def_name, 0) + 1
+        if rename:
+            base = rename.lstrip("+")
+            if "#" in base:
+                base = base.replace("#", str(self._place_counts[def_name]))
+        else:
+            base = def_name
         final_name = self._unique_name(_sanitize(base))
 
         length_mm = self._element_length_mm(definition)
+        self._record_aperture(definition)
 
         # Convert the element (field strengths carried as raw values, resolved
         # later once rigidity is known).
@@ -314,6 +327,23 @@ class Converter:
         if count == 0:
             return base
         return f"{base}_{count}"
+
+    def _record_aperture(self, definition: G4BLCommand) -> None:
+        """Track the largest transverse radius referenced by any element."""
+        g = definition.get
+        candidates = [
+            g("apertureRadius"), g("radius"), g("outerRadius"),
+            g("fieldOuterRadius"), g("ironRadius"),
+        ]
+        for c in candidates:
+            if c is not None:
+                self._max_aperture_mm = max(self._max_aperture_mm, _to_float(c))
+        # Half-extents for box/height/width definitions.
+        for key in ("fieldHeight", "fieldWidth", "height", "width"):
+            v = g(key)
+            if v is not None:
+                self._max_aperture_mm = max(self._max_aperture_mm,
+                                            _to_float(v) / 2.0)
 
     # -- per-element length -------------------------------------------------
     def _element_length_mm(self, definition: G4BLCommand) -> float:
@@ -739,6 +769,15 @@ class Converter:
             opt["physicsList"] = self._map_physics(self._physics)
         if self._n_events is not None:
             opt["ngenerate"] = self._n_events
+        # BDSIM always builds a beam pipe; G4beamline does not.  Size the pipe to
+        # the largest aperture/detector so a wide (vacuum) beam is not clipped or
+        # scattered by the pipe wall, matching G4beamline's free-space tracking.
+        if self._max_aperture_mm > 0:
+            r = round(self._max_aperture_mm, 3)
+            opt["beampipeRadius"] = (r, "mm")
+            # BDSIM requires the magnet outer width (horizontalWidth) to exceed
+            # 2*(aper1 + beampipe thickness); enlarge it to match the big pipe.
+            opt["horizontalWidth"] = (round(2 * r + 200.0, 3), "mm")
 
     def _map_physics(self, name: str) -> str:
         if name.lower() == "default":

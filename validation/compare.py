@@ -213,25 +213,34 @@ def _report(sampler, g, b, atol_mm, atol_ang, rtol, smoke=False) -> bool:
             print(f"    -- {key:12s} g4bl={g.get(key,0):+.5g} "
                   f"bdsim={b.get(key,0):+.5g}")
         return True
+
+    import math as _m
+    ng, nb = g.get("n", 1), b.get("n", 1)
+    # (field, abs-tol, unit, sigma-key for statistical error, stat factor)
     fields = [
-        ("mean_x_mm", atol_mm, "mm"),
-        ("mean_y_mm", atol_mm, "mm"),
-        ("mean_xp", atol_ang, "rad"),
-        ("mean_yp", atol_ang, "rad"),
-        ("sigma_x_mm", atol_mm, "mm"),
-        ("sigma_y_mm", atol_mm, "mm"),
+        ("mean_x_mm", atol_mm, "mm", "sigma_x_mm", 1.0),
+        ("mean_y_mm", atol_mm, "mm", "sigma_y_mm", 1.0),
+        ("mean_xp", atol_ang, "rad", "sigma_xp", 1.0),
+        ("mean_yp", atol_ang, "rad", "sigma_yp", 1.0),
+        # sigma estimator error ~ sigma/sqrt(2N).
+        ("sigma_x_mm", atol_mm, "mm", "sigma_x_mm", 0.7071),
+        ("sigma_y_mm", atol_mm, "mm", "sigma_y_mm", 0.7071),
     ]
     ok = True
-    for key, atol, unit in fields:
+    for key, atol, unit, sigkey, fac in fields:
         gv = g.get(key, 0.0)
         bv = b.get(key, 0.0)
         diff = abs(gv - bv)
-        tol = atol + rtol * max(abs(gv), abs(bv))
+        # 3-sigma combined statistical uncertainty from both samples.
+        sg = g.get(sigkey, 0.0) * fac
+        sb = b.get(sigkey, 0.0) * fac
+        stat = 3.0 * _m.sqrt(sg * sg / max(ng, 1) + sb * sb / max(nb, 1))
+        tol = atol + rtol * max(abs(gv), abs(bv)) + stat
         status = "ok " if diff <= tol else "BAD"
         if diff > tol:
             ok = False
         print(f"    {status} {key:12s} g4bl={gv:+.5g} bdsim={bv:+.5g} "
-              f"|d|={diff:.3g} {unit} (tol {tol:.3g})")
+              f"|d|={diff:.3g} {unit} (tol {tol:.3g}, stat {stat:.3g})")
     return ok
 
 
