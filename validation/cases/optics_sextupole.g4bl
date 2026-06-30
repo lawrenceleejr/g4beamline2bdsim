@@ -1,0 +1,11 @@
+# Multipole (sextupole): validates k2 conversion (k2 = 2*strength/Brho).
+# A purely off-axis-in-x beam picks up a quadratic kick.
+physics QGSP_BERT
+param Pz=1000.0
+reference referenceMomentum=$Pz particle=proton beamZ=0
+beam gaussian particle=proton nEvents=4000 meanMomentum=$Pz beamZ=0 \
+     beamX=20 sigmaX=0.5 sigmaY=0.5 sigmaXp=0.0002 sigmaYp=0.0002 sigmaP=0
+multipole MP fieldLength=300 ironRadius=0 apertureRadius=120 sextupole=80.0
+virtualdetector Det radius=400 length=1 format=ascii
+place MP rename=S1 z=500
+place Det rename=DetEnd z=1500

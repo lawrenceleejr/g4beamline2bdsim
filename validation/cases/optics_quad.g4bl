@@ -1,0 +1,11 @@
+# Single quadrupole (vacuum, no iron, no fringe): validates gradient->k1.
+# Offset proton beam is focused; compare x and xp downstream of the quad.
+physics QGSP_BERT
+param Pz=1000.0
+reference referenceMomentum=$Pz particle=proton beamZ=0
+beam gaussian particle=proton nEvents=3000 meanMomentum=$Pz beamZ=0 \
+     beamX=10 sigmaX=0.5 sigmaY=0.5 sigmaXp=0.0003 sigmaYp=0.0003 sigmaP=0
+genericquad Q fieldLength=300 ironLength=0 apertureRadius=100 fringe=0 kill=0
+virtualdetector Det radius=400 length=1 format=ascii
+place Q rename=Q1 gradient=3.0 z=500
+place Det rename=DetEnd z=1500

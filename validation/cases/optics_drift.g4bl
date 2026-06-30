@@ -1,0 +1,9 @@
+# Pure drift: validates geometry, drift insertion, and beam-offset translation.
+# A proton beam with a transverse angle should grow linearly in x.
+physics QGSP_BERT
+param Pz=1000.0
+reference referenceMomentum=$Pz particle=proton beamZ=0
+beam gaussian particle=proton nEvents=3000 meanMomentum=$Pz beamZ=0 \
+     beamX=0 meanXp=0.003 sigmaX=0.5 sigmaY=0.5 sigmaXp=0.0002 sigmaYp=0.0002 sigmaP=0
+virtualdetector Det radius=500 length=1 format=ascii
+place Det rename=DetEnd z=2000

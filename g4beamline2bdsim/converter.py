@@ -675,6 +675,22 @@ class Converter:
         cmd = self._beam_cmd
         if cmd is None:
             return
+
+        # Beam centroid offsets: G4beamline beamX/beamY [mm] and meanXp/meanYp
+        # [slope] -> BDSIM X0/Y0 [m] and Xp0/Yp0.
+        bx = cmd.get("beamX") or cmd.get("x")
+        by = cmd.get("beamY") or cmd.get("y")
+        mxp = cmd.get("meanXp") or cmd.get("beamXp")
+        myp = cmd.get("meanYp") or cmd.get("beamYp")
+        if bx is not None and _to_float(bx) != 0.0:
+            beam["X0"] = (_to_float(bx), "mm")
+        if by is not None and _to_float(by) != 0.0:
+            beam["Y0"] = (_to_float(by), "mm")
+        if mxp is not None and _to_float(mxp) != 0.0:
+            beam["Xp0"] = _to_float(mxp)
+        if myp is not None and _to_float(myp) != 0.0:
+            beam["Yp0"] = _to_float(myp)
+
         btype = cmd.args[0] if cmd.args else "gaussian"
         if btype == "gaussian":
             beam["distrType"] = "gauss"
