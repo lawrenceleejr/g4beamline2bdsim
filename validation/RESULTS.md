@@ -164,11 +164,74 @@ official examples are not lattice/optics tests.**  They fall into:
   `g-2`, `helicaldipole`) — fields the converter does not translate;
 * **trackable magnet/drift lattices** — the minority that can close.
 
-<!-- SWEEP_TABLE -->
+| example | elems | warns | beam | det | BDSIM runs | class |
+|---|---|---|---|---|---|---|
+| `bend_line.g4bl` | 12 | 0 | Y | Y | ok | TRACKABLE |
+| `collective.g4bl` | 3 | 1 | Y | Y | ok | TRACKABLE |
+| `eloss.g4bl` | 3 | 1 | Y | Y | ok | TRACKABLE |
+| `Example1.g4bl` | 9 | 1 | Y | Y | ok | TRACKABLE |
+| `ExampleN02.g4bl` | 11 | 2 | Y | Y | ok | TRACKABLE |
+| `fodo.g4bl` | 6 | 0 | Y | Y | ok | TRACKABLE |
+| `fodo_channel.g4bl` | 42 | 0 | Y | Y | ok | TRACKABLE |
+| `MultipleScattering.g4bl` | 4 | 1 | Y | Y | ok | TRACKABLE |
+| `muscat.g4bl` | 4 | 1 | Y | Y | ok | TRACKABLE |
+| `optics_bend.g4bl` | 4 | 0 | Y | Y | ok | TRACKABLE |
+| `optics_doublet.g4bl` | 6 | 0 | Y | Y | ok | TRACKABLE |
+| `optics_drift.g4bl` | 2 | 0 | Y | Y | ok | TRACKABLE |
+| `optics_quad.g4bl` | 4 | 0 | Y | Y | ok | TRACKABLE |
+| `optics_sextupole.g4bl` | 4 | 0 | Y | Y | ok | TRACKABLE |
+| `rf_solenoid.g4bl` | 10 | 3 | Y | Y | ok | TRACKABLE |
+| `SampleMovie.g4bl` | 9 | 1 | Y | Y | ok | TRACKABLE |
+| `straggling.g4bl` | 3 | 1 | Y | Y | ok | TRACKABLE |
+| `straggling2.g4bl` | 3 | 1 | Y | Y | ok | TRACKABLE |
+| `Study2Cooling.g4bl` | 11 | 21 | Y | Y | ok | TRACKABLE |
+| `TungstenTarget.g4bl` | 5 | 2 | Y | Y | ok | TRACKABLE |
+| `g-2.g4bl` | 2 | 3 | Y | Y | ok | PARTIAL (unsupported features) |
+| `Idealized_g-2.g4bl` | 1 | 2 | Y | . | ok | PARTIAL (unsupported features) |
+| `SpaceCharge.g4bl` | 9 | 2 | Y | . | ok | PARTIAL (unsupported features) |
+| `transport.g4bl` | 3 | 3 | Y | Y | ok | PARTIAL (unsupported features) |
+| `decay.g4bl` | 2 | 1 | Y | . | ok | CONVERTS |
+| `mudecay.g4bl` | 1 | 1 | Y | . | ok | CONVERTS |
+| `pidecay.g4bl` | 1 | 1 | Y | . | ok | CONVERTS |
+| `bend.g4bl` | 1 | 2 | . | . | FAIL | NON-TRACKING |
+| `chaos.g4bl` | 1 | 4 | . | . | FAIL | NON-TRACKING |
+| `fieldexpr.g4bl` | 1 | 3 | . | . | FAIL | NON-TRACKING |
+| `FieldLines.g4bl` | 9 | 6 | . | . | FAIL | NON-TRACKING |
+| `fieldmap.g4bl` | 1 | 3 | . | . | FAIL | NON-TRACKING |
+| `helicaldipole.g4bl` | 2 | 4 | . | . | FAIL | NON-TRACKING |
+| `helmholtz.g4bl` | 3 | 3 | . | . | FAIL | NON-TRACKING |
+| `material.g4bl` | 0 | 1 | . | . | - | NON-TRACKING |
+| `multipole.g4bl` | 1 | 1 | . | . | FAIL | NON-TRACKING |
+| `pillbox.g4bl` | 1 | 2 | . | . | FAIL | NON-TRACKING |
+| `quad.g4bl` | 1 | 1 | . | . | FAIL | NON-TRACKING |
+| `sectorbend.g4bl` | 1 | 1 | . | . | FAIL | NON-TRACKING |
+| `solenoid.g4bl` | 3 | 3 | . | . | FAIL | NON-TRACKING |
+| `dataio.g4bl` | 2 | 1 | Y | Y | FAIL | BDSIM-ERROR |
+| `MICE_StageVI.g4bl` | 113 | 136 | Y | Y | FAIL | BDSIM-ERROR |
+| `placement.g4bl` | 4 | 3 | Y | Y | FAIL | BDSIM-ERROR |
+| `visualization.g4bl` | 1 | 2 | Y | . | FAIL | BDSIM-ERROR |
 
 ### Class counts
 
-<!-- SWEEP_COUNTS -->
+* **20** TRACKABLE
+* **4** PARTIAL (unsupported features)
+* **3** CONVERTS
+* **13** NON-TRACKING
+* **4** BDSIM-ERROR
+
+**Total: 44 examples** (25 official validation/, 10 official examples/, 9 curated).
+
+The **4 BDSIM-ERROR** cases are all explained, none a conversion-math error:
+
+* `placement.g4bl`, `visualization.g4bl` — the G4beamline `beam` sets **no
+  momentum** (it relies on a G4beamline default); BDSIM requires an energy, so
+  the converter cannot supply one. Add a momentum and they run.
+* `dataio.g4bl` — the beam is **read from an ASCII file** (`beam ASCII
+  file=in.txt`); needs the data file + a BDSIM `userfile` column spec.
+* `MICE_StageVI.g4bl` — a 113-element cooling channel whose dipole bends ~60°
+  in ~1 m; BDSIM's `rbend` **cannot build that geometry** (pole faces overlap).
+  This is a BDSIM geometry constraint, not a conversion error — lengthening the
+  magnet or using `sbend` for that element resolves it.
 
 ---
 
