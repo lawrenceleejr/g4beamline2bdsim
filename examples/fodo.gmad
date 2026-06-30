@@ -26,7 +26,10 @@ beam, particle="mu+",
       sigmaE=0.01;
 
 ! ---- options ----
-option, physicsList="g4QGSP_BERT", ngenerate=1000;
+option, physicsList="g4QGSP_BERT",
+        ngenerate=1000,
+        beampipeRadius=200*mm,
+        horizontalWidth=600*mm;
 
 ! ---- samplers ----
 sample, range=DetEnd;

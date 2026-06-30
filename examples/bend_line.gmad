@@ -33,7 +33,10 @@ beam, particle="proton",
       sigmaE=0.005;
 
 ! ---- options ----
-option, physicsList="g4QGSP_BERT", ngenerate=500;
+option, physicsList="g4QGSP_BERT",
+        ngenerate=500,
+        beampipeRadius=2200*mm,
+        horizontalWidth=4600*mm;
 
 ! ---- samplers ----
 sample, range=D1;
