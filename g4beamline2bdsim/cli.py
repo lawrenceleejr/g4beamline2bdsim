@@ -35,6 +35,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Emit 'sample, all;' instead of per-detector samplers",
     )
     p.add_argument(
+        "--no-gdml",
+        action="store_true",
+        help="Convert box/tubs material volumes to drifts instead of exporting "
+             "GDML geometry (material will not interact with the beam)",
+    )
+    p.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -60,7 +66,8 @@ def run(argv: Optional[List[str]] = None) -> int:
         source_name = os.path.basename(args.input)
 
     commands, _params = parse_g4bl(text)
-    converter = Converter(commands, source_name=source_name)
+    converter = Converter(commands, source_name=source_name,
+                          emit_gdml=not args.no_gdml)
     model = converter.convert()
     model.line_name = args.line_name
     if args.sample_all:
@@ -72,6 +79,13 @@ def run(argv: Optional[List[str]] = None) -> int:
     # Determine output path.
     if args.output == "-" or (args.output is None and args.input == "-"):
         sys.stdout.write(gmad_text)
+        if model.aux_files and not args.quiet:
+            print(
+                f"note: {len(model.aux_files)} GDML file(s) not written to "
+                f"stdout; use -o to emit them: "
+                f"{', '.join(model.aux_files)}",
+                file=sys.stderr,
+            )
     else:
         out_path = args.output
         if out_path is None:
@@ -79,8 +93,15 @@ def run(argv: Optional[List[str]] = None) -> int:
             out_path = base + ".gmad"
         with open(out_path, "w", encoding="utf-8") as fh:
             fh.write(gmad_text)
+        # Write auxiliary files (GDML geometry) next to the GMAD.
+        out_dir = os.path.dirname(os.path.abspath(out_path))
+        for fname, content in model.aux_files.items():
+            with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as fh:
+                fh.write(content)
         if not args.quiet:
-            print(f"Wrote {out_path}", file=sys.stderr)
+            extra = (f" (+ {len(model.aux_files)} GDML file(s))"
+                     if model.aux_files else "")
+            print(f"Wrote {out_path}{extra}", file=sys.stderr)
 
     # Report warnings.
     if model.warnings and not args.quiet:

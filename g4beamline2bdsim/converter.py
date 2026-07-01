@@ -33,6 +33,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from . import gdml as _gdml
 from .expr import evaluate as _eval_expr
 from .model import BdsimModel, Element
 from .parser import G4BLCommand
@@ -119,9 +120,13 @@ class _Placement:
 class Converter:
     """Convert a list of :class:`G4BLCommand` into a :class:`BdsimModel`."""
 
-    def __init__(self, commands: List[G4BLCommand], source_name: str = "") -> None:
+    def __init__(self, commands: List[G4BLCommand], source_name: str = "",
+                 emit_gdml: bool = True) -> None:
         self.commands = commands
         self.source_name = source_name
+        # When True, passive material volumes (box/tubs) become BDSIM elements
+        # with external GDML geometry (material interacts); otherwise drifts.
+        self.emit_gdml = emit_gdml
         self.model = BdsimModel()
 
         # element-definition name -> (G4BLCommand, type)
@@ -196,6 +201,11 @@ class Converter:
                     f"'{name}' (line {cmd.line_no}) ignored: bending is taken "
                     f"from the magnet field/angle in BDSIM."
                 )
+        elif name in _UNSUPPORTED_COMMANDS:
+            self.model.warn(
+                f"'{name}' (line {cmd.line_no}) not converted: "
+                f"{_UNSUPPORTED_COMMANDS[name]}"
+            )
         # Everything else (g4ui, trace, param, tune, output, ...) is ignored.
 
     def _record_definition(self, cmd: G4BLCommand) -> None:
@@ -556,24 +566,61 @@ class Converter:
         return el
 
     def _conv_tubs(self, name, definition, place, length_mm) -> Element:
-        return self._passive_geometry(name, definition, length_mm, cylindrical=True)
+        return self._passive_geometry(name, definition, length_mm, "tubs")
 
     def _conv_cylinder(self, name, definition, place, length_mm) -> Element:
-        return self._passive_geometry(name, definition, length_mm, cylindrical=True)
+        return self._passive_geometry(name, definition, length_mm, "tubs")
 
     def _conv_box(self, name, definition, place, length_mm) -> Element:
-        return self._passive_geometry(name, definition, length_mm, cylindrical=False)
+        return self._passive_geometry(name, definition, length_mm, "box")
 
-    def _passive_geometry(self, name, definition, length_mm, cylindrical) -> Element:
-        # A block/tube of material in the beam path -> drift preserving length.
+    def _passive_geometry(self, name, definition, length_mm, shape) -> Element:
         material = definition.get("material")
+        # Vacuum (or GDML disabled): a drift preserves the beamline length.
+        if not self.emit_gdml or _gdml.is_vacuum(material) or length_mm <= 0:
+            if not _gdml.is_vacuum(material):
+                self.model.warn(
+                    f"passive volume '{name}' ({definition.name}, "
+                    f"material={material}) converted to a drift; enable GDML "
+                    f"export to make the material interact with the beam."
+                )
+            return self._drift(name, length_mm)
+
+        # Material volume -> external GDML geometry so it interacts in BDSIM.
+        g4mat, known = _gdml.map_material(material)
+        if not known:
+            self.model.warn(
+                f"material '{material}' on '{name}' mapped to '{g4mat}'; verify "
+                f"it is a valid Geant4/NIST material name."
+            )
+        g = definition.get
+        if shape == "box":
+            width = _to_float(g("width"))
+            height = _to_float(g("height"))
+            gdml_text = _gdml.box_gdml(width, height, length_mm, g4mat)
+            extent = max(width, height)
+        else:
+            inner = _to_float(g("innerRadius"))
+            outer = _to_float(g("outerRadius") or g("radius"))
+            phi0 = _to_float(g("initialPhi"))
+            phi1 = g("finalPhi")
+            dphi = (_to_float(phi1) - phi0) if phi1 is not None else 360.0
+            gdml_text = _gdml.tubs_gdml(inner, outer, length_mm, g4mat,
+                                        phi0, dphi if dphi else 360.0)
+            extent = 2.0 * outer
+        fname = f"{name}.gdml"
+        self.model.aux_files[fname] = gdml_text
+        el = Element(name=name, type="element")
+        el.set("geometryFile", f"gdml:{fname}")
+        el.set("l", (length_mm, "mm"))
+        el.set("horizontalWidth", (round(extent * 1.2 + 20.0, 3), "mm"))
+        el.comment = f"{definition.name} target, material {g4mat}"
         self.model.warn(
-            f"passive volume '{name}' ({definition.name}"
-            + (f", material={material}" if material else "")
-            + ") converted to a drift; replace with a collimator or custom "
-            "geometry if it should interact with the beam."
+            f"passive volume '{name}' ({definition.name}, material={g4mat}) "
+            f"exported as GDML geometry ({fname}); transverse offsets/rotations "
+            f"are placed on-axis."
         )
-        return self._drift(name, length_mm)
+        return el
 
     def _conv_virtualdetector(self, name, definition, place, length_mm) -> Element:
         el = Element(name=name, type="marker")
@@ -818,6 +865,27 @@ _VALID_G4_LISTS = {
     "LBE", "QBBC", "QGSP_BERT", "QGSP_BERT_HP", "QGSP_BIC", "QGSP_BIC_HP",
     "QGSP_BIC_AllHP", "QGSP_FTFP_BERT", "QGSP_INCLXX", "QGSP_INCLXX_HP",
     "QGS_BIC", "Shielding", "ShieldingLEND", "NuBeam", "FTFQGSP_BERT",
+}
+
+
+# G4beamline commands with no BDSIM/GMAD equivalent -- warn when encountered so
+# the conversion is transparent (see validation/LIMITATIONS.md for workarounds).
+_UNSUPPORTED_COMMANDS = {
+    "fieldmap": "BDSIM supports field maps via a 'field' object, but the "
+                "BLFieldMap file must be converted to a BDSIM field-map format "
+                "and attached to a drift (see LIMITATIONS.md).",
+    "fieldexpr": "analytic field expressions have no GMAD equivalent; use a "
+                 "BDSIM field map or a magnet element instead.",
+    "spacecharge": "BDSIM is a single-particle tracker; space charge / "
+                   "collective effects are not modelled.",
+    "helicaldipole": "no standard BDSIM helical-dipole element; approximate "
+                     "with a field map or a sequence of dipoles.",
+    "tune": "BDSIM does not auto-tune; set magnet strengths explicitly or "
+            "match externally with pybdsim.",
+    "fieldlines": "field-line visualisation is a G4beamline-only feature.",
+    "printfield": "field printing is a G4beamline-only feature.",
+    "particlefilter": "per-region particle filtering has no direct equivalent; "
+                      "use collimators or minimumKineticEnergy.",
 }
 
 

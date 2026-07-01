@@ -50,6 +50,9 @@ class BdsimModel:
     samplers: List[str] = field(default_factory=list)  # element names, or ["all"]
     header_comments: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    # Auxiliary files to write alongside the GMAD (e.g. GDML geometry):
+    # filename -> file contents.
+    aux_files: "OrderedDict[str, str]" = field(default_factory=OrderedDict)
 
     # name -> Element index for de-duplication / lookup.
     _by_name: Dict[str, int] = field(default_factory=dict, repr=False)
