@@ -86,3 +86,43 @@ def test_no_gdml_flag_falls_back_to_drift():
     assert m.get_element("T1").type == "drift"
     assert not m.aux_files
     assert any("drift" in w for w in m.warnings)
+
+
+# --- fieldexpr auto-map tests ---
+def test_fieldexpr_box_to_map():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    fieldexpr F width=600 height=400 length=500 By=0.1
+    place F rename=F1 z=1000
+    """
+    m = convert(text)
+    el = m.get_element("F1")
+    assert el.type == "drift"
+    assert el.params["fieldAll"] == "F1_field"
+    assert "F1.dat" in m.aux_files
+    body = m.aux_files["F1.dat"]
+    assert body.startswith("xmin>")
+    # By ~ 0.1 T everywhere; check a data row has 0.1 in the Fy column.
+    assert "1.00000000E-01" in body
+
+
+def test_fieldexpr_varying_expression():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    fieldexpr F width=200 height=200 length=400 By=0.2*cos(z/400)
+    place F rename=F1 z=1000
+    """
+    m = convert(text)
+    assert "F1.dat" in m.aux_files
+    # field object declared before elements
+    assert any("F1_field: field" in fo for fo in m.field_objects)
+
+
+def test_fieldexpr_efield_warns():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    fieldexpr F width=200 height=200 length=400 Ez=1.0
+    place F rename=F1 z=1000
+    """
+    m = convert(text)
+    assert any("electric-field" in w for w in m.warnings)

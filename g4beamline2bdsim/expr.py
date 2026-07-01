@@ -95,9 +95,9 @@ class ExprError(Exception):
     pass
 
 
-def _eval(node):
+def _eval(node, variables):
     if isinstance(node, ast.Expression):
-        return _eval(node.body)
+        return _eval(node.body, variables)
     if isinstance(node, ast.Constant):
         if isinstance(node.value, bool):
             return 1.0 if node.value else 0.0
@@ -105,6 +105,8 @@ def _eval(node):
             return float(node.value)
         raise ExprError(f"non-numeric constant: {node.value!r}")
     if isinstance(node, ast.Name):
+        if variables and node.id in variables:
+            return float(variables[node.id])
         if node.id in _CONSTANTS:
             return _CONSTANTS[node.id]
         raise ExprError(f"unknown name: {node.id}")
@@ -112,14 +114,14 @@ def _eval(node):
         op = _BINOPS.get(type(node.op))
         if op is None:
             raise ExprError(f"unsupported operator: {type(node.op).__name__}")
-        return op(_eval(node.left), _eval(node.right))
+        return op(_eval(node.left, variables), _eval(node.right, variables))
     if isinstance(node, ast.UnaryOp):
         op = _UNARYOPS.get(type(node.op))
         if op is None:
             raise ExprError("unsupported unary operator")
-        return op(_eval(node.operand))
+        return op(_eval(node.operand, variables))
     if isinstance(node, ast.BoolOp):
-        vals = [_eval(v) for v in node.values]
+        vals = [_eval(v, variables) for v in node.values]
         if isinstance(node.op, ast.And):
             return 1.0 if all(vals) else 0.0
         return 1.0 if any(vals) else 0.0
@@ -129,42 +131,61 @@ def _eval(node):
         op = _CMPOPS.get(type(node.ops[0]))
         if op is None:
             raise ExprError("unsupported comparison")
-        return 1.0 if op(_eval(node.left), _eval(node.comparators[0])) else 0.0
+        return (1.0 if op(_eval(node.left, variables),
+                          _eval(node.comparators[0], variables)) else 0.0)
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
             raise ExprError("only named functions allowed")
         fn = _FUNCTIONS.get(node.func.id)
         if fn is None:
             raise ExprError(f"unknown function: {node.func.id}")
-        return float(fn(*[_eval(a) for a in node.args]))
+        return float(fn(*[_eval(a, variables) for a in node.args]))
     raise ExprError(f"unsupported syntax: {type(node).__name__}")
 
 
-def evaluate(text: str) -> Optional[float]:
+def _prepare(text: str) -> str:
+    s = text.strip()
+    s = s.replace("^", "**")
+    # 'if' is a Python keyword -> rewrite the G4beamline if(...) call.
+    return re.sub(r"\bif\s*\(", "_g4if(", s)
+
+
+def evaluate(text: str, variables: Optional[dict] = None) -> Optional[float]:
     """Evaluate *text* as a G4beamline numeric expression.
 
+    ``variables`` optionally supplies values for names (e.g. ``x``/``y``/``z``).
     Returns the float value, or ``None`` if it is not a valid numeric
-    expression (e.g. a string literal, a material name, an unresolved ``$ref``).
+    expression (a string literal, a material name, an unresolved ``$ref``).
     """
     if text is None:
         return None
     s = text.strip()
     if not s:
         return None
-    # Unresolved parameter references are not numeric.
-    if "$" in s:
+    if "$" in s:               # unresolved parameter reference
         return None
-    # G4beamline uses '^' for power; Python uses '**'.
-    s = s.replace("^", "**")
-    # 'if' is a Python keyword -> rewrite the G4beamline if(...) call so it
-    # parses as a function call.
-    s = re.sub(r"\bif\s*\(", "_g4if(", s)
     try:
-        tree = ast.parse(s, mode="eval")
-        return float(_eval(tree))
+        tree = ast.parse(_prepare(s), mode="eval")
+        return float(_eval(tree, variables))
     except (ExprError, SyntaxError, ValueError, TypeError, ZeroDivisionError,
             OverflowError):
         return None
+
+
+def compile_expr(text: str):
+    """Compile a G4beamline expression to a callable ``f(**variables)``.
+
+    Raises :class:`ExprError` if the text is not a valid expression.  The
+    returned callable evaluates fast (AST is parsed once).
+    """
+    if text is None:
+        raise ExprError("empty expression")
+    tree = ast.parse(_prepare(text), mode="eval")
+
+    def fn(**variables):
+        return float(_eval(tree, variables))
+
+    return fn
 
 
 def has_operator(text: str) -> bool:

@@ -396,6 +396,8 @@ class Converter:
             return _to_float(g("innerLength"))
         if t in ("tubs", "cylinder", "box"):
             return _to_float(g("length"))
+        if t == "fieldexpr":
+            return _to_float(g("length"))
         if t in ("virtualdetector", "detector"):
             return _to_float(g("length"), 1.0)
         return 0.0
@@ -711,6 +713,81 @@ class Converter:
         )
         return el
 
+    def _conv_fieldexpr(self, name, definition, place, length_mm) -> Element:
+        """Sample a G4beamline analytic field expression onto a BDSIM map.
+
+        Box region uses coords {x,y,z}; cylinder region uses {r,z} (Br/Bphi/Bz).
+        Field values are Tesla; coordinates mm.  E-field expressions are not
+        exported (BDSIM would need an ebmap) -- a warning is emitted.
+        """
+        from .expr import compile_expr, ExprError
+
+        g = definition.get
+        factor_b = _to_float(g("factorB"), 1.0)
+        if any(g(k) for k in ("Ex", "Ey", "Ez", "Er")):
+            self.model.warn(
+                f"fieldexpr '{name}': electric-field expressions are not "
+                f"exported (only magnetic). Add a BDSIM ebmap by hand if needed."
+            )
+        cylinder = g("radius") is not None
+        # Compile the provided expressions (missing -> zero).
+        def comp(key):
+            e = g(key)
+            if e is None:
+                return None
+            try:
+                return compile_expr(e)
+            except ExprError:
+                self.model.warn(f"fieldexpr '{name}': cannot parse {key}={e}")
+                return None
+
+        if cylinder:
+            br_f, bphi_f, bz_f = comp("Br"), comp("Bphi"), comp("Bz")
+            radius = _to_float(g("radius"))
+            half_x = half_y = radius
+
+            def field_fn(x, y, z):
+                import math as _m
+                r = _m.hypot(x, y)
+                br = factor_b * br_f(r=r, z=z, x=x, y=y) if br_f else 0.0
+                bphi = factor_b * bphi_f(r=r, z=z, x=x, y=y) if bphi_f else 0.0
+                bz = factor_b * bz_f(r=r, z=z, x=x, y=y) if bz_f else 0.0
+                if r > 1e-9:
+                    return (br * x / r - bphi * y / r,
+                            br * y / r + bphi * x / r, bz)
+                return 0.0, 0.0, bz
+        else:
+            bx_f, by_f, bz_f = comp("Bx"), comp("By"), comp("Bz")
+            half_x = _to_float(g("width")) / 2.0 or 1.0
+            half_y = _to_float(g("height")) / 2.0 or 1.0
+
+            def field_fn(x, y, z):
+                bx = factor_b * bx_f(x=x, y=y, z=z) if bx_f else 0.0
+                by = factor_b * by_f(x=x, y=y, z=z) if by_f else 0.0
+                bz = factor_b * bz_f(x=x, y=y, z=z) if bz_f else 0.0
+                return bx, by, bz
+
+        nx = ny = 21
+        nz = int(max(41, min(121, length_mm / 20.0 + 41)))
+        xs = _fieldmap.linspace(-half_x, half_x, nx)
+        ys = _fieldmap.linspace(-half_y, half_y, ny)
+        zs = _fieldmap.linspace(-length_mm / 2.0, length_mm / 2.0, nz)
+        fmap = _fieldmap.build_3d(xs, ys, zs, field_fn)
+        fname = f"{name}.dat"
+        self.model.aux_files[fname] = fmap
+        fobj = f"{name}_field"
+        self.model.field_objects.append(
+            _fieldmap.gmad_field_object(fobj, fname, 3, "linear"))
+        el = Element(name=name, type="drift")
+        el.set("l", (length_mm, "mm"))
+        el.set("fieldAll", fobj)
+        el.comment = f"fieldexpr sampled to map {fname}"
+        self.model.warn(
+            f"fieldexpr '{name}': analytic field sampled onto a BDSIM field map "
+            f"({fname}, {nx}x{ny}x{nz})."
+        )
+        return el
+
     def _conv_virtualdetector(self, name, definition, place, length_mm) -> Element:
         el = Element(name=name, type="marker")
         el.comment = "virtualdetector -> sampler"
@@ -973,8 +1050,6 @@ _UNSUPPORTED_COMMANDS = {
     "fieldmap": "BDSIM supports field maps via a 'field' object, but the "
                 "BLFieldMap file must be converted to a BDSIM field-map format "
                 "and attached to a drift (see LIMITATIONS.md).",
-    "fieldexpr": "analytic field expressions have no GMAD equivalent; use a "
-                 "BDSIM field map or a magnet element instead.",
     "spacecharge": "BDSIM is a single-particle tracker; space charge / "
                    "collective effects are not modelled.",
     "helicaldipole": "no standard BDSIM helical-dipole element; approximate "
@@ -992,7 +1067,7 @@ _UNSUPPORTED_COMMANDS = {
 _DEFINITION_TYPES = {
     "genericbend", "genericquad", "idealsectorbend", "genericsectorbend",
     "multipole", "solenoid", "pillbox", "rfdevice", "tubs", "cylinder",
-    "box", "virtualdetector", "detector",
+    "box", "virtualdetector", "detector", "fieldexpr",
 }
 
 
