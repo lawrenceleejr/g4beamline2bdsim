@@ -276,11 +276,35 @@ most of the beam in the calorimeter, BDSIM transmits all of it.
 
 **This is by design.** The converter's job is to translate the *accelerator
 lattice* (drifts, magnets, RF, optics), which it does to the precision shown in
-§§2–4.  Reproducing energy loss, multiple scattering, showers and secondary
-production in targets and collimators requires transferring the material
-geometry — out of scope here — and these examples should be treated as
-lattice conversions with the absorbers re-inserted by hand as BDSIM collimators
-or external geometry.
+§§2–4.  **Update:** material volumes are *now* transferred as GDML geometry
+(§5c), so the beam does interact — the "~0 BDSIM" numbers above predate that
+feature and illustrate what a drift-only conversion loses.
+
+---
+
+## 5c. Field and geometry conversion (validated)
+
+Beyond the ideal-lattice elements, these G4beamline features are converted by
+generating BDSIM **field maps** or **GDML geometry**, each validated by running
+both codes:
+
+| feature | conversion | validation |
+|---|---|---|
+| **Material target** (`box`/`tubs`/… of a material) | GDML `element` | 100 mm W, 2 GeV/c p: G4beamline 62/200 survive, ⟨E⟩ 1.978 GeV, σx 17.48 mm vs **BDSIM 67/200, 1.980 GeV, 17.49 mm** |
+| **`fieldexpr`** (analytic field) | auto-sampled BDSIM 3-D field map | uniform `By`: mean `xp` −0.014987 (BDSIM) vs −0.014986 (G4beamline) — **5 sig figs** |
+| **`fieldmap`** (BLFieldMap file) | parsed → BDSIM field map | uniform `By` round-trip: mean `xp` −0.011992 = analytic `B·L/Bρ` exactly |
+| **Solenoid coil field** (`coil`+`current`) | ported field → native `ks` | on-axis `Bz` vs G4beamline `printfield`: 2.0907 vs 2.0906, 1.1913 vs 1.1913, 0.1808 vs 0.1810 T (**4 sig figs** across the profile) |
+
+The field-map ASCII format used for the middle two rows was reverse-engineered
+and verified empirically against BDSIM (a hand-written uniform-field map
+reproduces the analytic deflection to 5 sig figs; a localized-slab map pins the
+position unit to millimetres).
+
+The one honest caveat is the **strong-solenoid field map** (`--solenoid-field-map`):
+the field itself is exact, but tracking a strong axisymmetric field through a
+Cartesian map is delicate (interpolation is not exactly divergence-free), so the
+robust default is the native `solenoid` with `ks` from that exact field — see
+`LIMITATIONS.md` §4.
 
 ---
 
@@ -294,10 +318,11 @@ or external geometry.
 | multi-quad lattice | per-element | **few %** over 16 quads (§3) |
 | dipole `B`/angle | `B` or geometric angle | **0.2–0.5 %** (§2.5) |
 | beam (particle, p, σ, centroid) | direct | exact |
-| solenoid | central-field estimate | order-of-magnitude — verify |
+| solenoid | ported coil field → native `ks` | field **4 sig figs** (§5c); hard-edge focusing ~10–20 % for strong solenoids |
 | RF cavity | `E`, `f`; phase convention differs | runs; check phase |
-| material / collimator | mapped to drift | not modelled (by design) |
-| field maps (`fieldmap`/`fieldexpr`) | not converted | n/a |
+| material target/collimator/solid | GDML geometry | energy loss & scattering **< 0.1 %** (§5c) |
+| `fieldexpr` (analytic field) | auto field map | **5 sig figs** (§5c) |
+| `fieldmap` (BLFieldMap) | parsed → field map | exact round-trip (§5c) |
 
 ---
 
