@@ -48,6 +48,8 @@ class BdsimModel:
     beam: "OrderedDict[str, ParamValue]" = field(default_factory=OrderedDict)
     options: "OrderedDict[str, ParamValue]" = field(default_factory=OrderedDict)
     samplers: List[str] = field(default_factory=list)  # element names, or ["all"]
+    # GMAD ``field`` object declarations (emitted before element definitions).
+    field_objects: List[str] = field(default_factory=list)
     header_comments: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     # Auxiliary files to write alongside the GMAD (e.g. GDML geometry):

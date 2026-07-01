@@ -147,7 +147,9 @@ def test_single_sextupole():
     assert s1.params["k2"] == pytest.approx(2.0 * 50.0 / brho)
 
 
-def test_solenoid_field_estimate():
+def test_solenoid_native_ks_default():
+    # By default a solenoid becomes a native BDSIM solenoid with ks derived from
+    # the G4beamline-matched peak coil field.
     text = """
     reference referenceMomentum=200 particle=mu+
     coil C1 innerRadius=300 outerRadius=400 length=500 material=Cu
@@ -157,8 +159,27 @@ def test_solenoid_field_estimate():
     m = convert(text)
     s1 = get(m, "S1")
     assert s1.type == "solenoid"
-    assert s1.params["B"][0] == pytest.approx(5.857, abs=0.01)
-    assert any("solenoid" in w for w in m.warnings)
+    # peak field ~5.857 T; ks = B/Brho, Brho = 0.2/0.299792458
+    brho = 0.2 / 0.299792458
+    assert s1.params["ks"] == pytest.approx(5.857 / brho, rel=0.02)
+    assert not m.aux_files
+
+
+def test_solenoid_field_map_optin():
+    # With solenoid_field_map=True the full coil field is written as a map.
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    coil C1 innerRadius=300 outerRadius=400 length=500 material=Cu
+    solenoid S coilName=C1 current=80
+    place S rename=S1 z=1500
+    """
+    cmds, _ = parse_g4bl(text)
+    m = Converter(cmds, solenoid_field_map=True).convert()
+    s1 = get(m, "S1")
+    assert s1.type == "drift"
+    assert s1.params["fieldAll"] == "S1_field"
+    assert "S1.dat" in m.aux_files
+    assert m.aux_files["S1.dat"].startswith("xmin>")
 
 
 def test_beam_and_options():

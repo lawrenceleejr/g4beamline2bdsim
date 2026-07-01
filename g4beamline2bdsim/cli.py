@@ -41,6 +41,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "GDML geometry (material will not interact with the beam)",
     )
     p.add_argument(
+        "--no-field-maps",
+        action="store_true",
+        help="Do not generate BDSIM field maps for fieldexpr formulas",
+    )
+    p.add_argument(
+        "--solenoid-field-map",
+        action="store_true",
+        help="Export the full 3D coil field of each solenoid as a BDSIM field "
+             "map (experimental) instead of a native solenoid with ks",
+    )
+    p.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -67,7 +78,9 @@ def run(argv: Optional[List[str]] = None) -> int:
 
     commands, _params = parse_g4bl(text)
     converter = Converter(commands, source_name=source_name,
-                          emit_gdml=not args.no_gdml)
+                          emit_gdml=not args.no_gdml,
+                          emit_field_maps=not args.no_field_maps,
+                          solenoid_field_map=args.solenoid_field_map)
     model = converter.convert()
     model.line_name = args.line_name
     if args.sample_all:
@@ -81,8 +94,8 @@ def run(argv: Optional[List[str]] = None) -> int:
         sys.stdout.write(gmad_text)
         if model.aux_files and not args.quiet:
             print(
-                f"note: {len(model.aux_files)} GDML file(s) not written to "
-                f"stdout; use -o to emit them: "
+                f"note: {len(model.aux_files)} auxiliary file(s) (GDML/field "
+                f"maps) not written to stdout; use -o to emit them: "
                 f"{', '.join(model.aux_files)}",
                 file=sys.stderr,
             )
@@ -99,7 +112,7 @@ def run(argv: Optional[List[str]] = None) -> int:
             with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as fh:
                 fh.write(content)
         if not args.quiet:
-            extra = (f" (+ {len(model.aux_files)} GDML file(s))"
+            extra = (f" (+ {len(model.aux_files)} auxiliary file(s))"
                      if model.aux_files else "")
             print(f"Wrote {out_path}{extra}", file=sys.stderr)
 

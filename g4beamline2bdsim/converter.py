@@ -33,7 +33,9 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from . import fieldmap as _fieldmap
 from . import gdml as _gdml
+from . import solenoid as _solenoid
 from .expr import evaluate as _eval_expr
 from .model import BdsimModel, Element
 from .parser import G4BLCommand
@@ -121,12 +123,19 @@ class Converter:
     """Convert a list of :class:`G4BLCommand` into a :class:`BdsimModel`."""
 
     def __init__(self, commands: List[G4BLCommand], source_name: str = "",
-                 emit_gdml: bool = True) -> None:
+                 emit_gdml: bool = True, emit_field_maps: bool = True,
+                 solenoid_field_map: bool = False) -> None:
         self.commands = commands
         self.source_name = source_name
         # When True, passive material volumes (box/tubs) become BDSIM elements
         # with external GDML geometry (material interacts); otherwise drifts.
         self.emit_gdml = emit_gdml
+        # When True, fieldexpr formulas are converted to BDSIM field maps.
+        self.emit_field_maps = emit_field_maps
+        # When True, a solenoid becomes a full 3D field map of the coil field
+        # (experimental: Cartesian-map tracking of strong solenoids can be
+        # inaccurate).  Default: a native solenoid with ks from the coil field.
+        self.solenoid_field_map = solenoid_field_map
         self.model = BdsimModel()
 
         # element-definition name -> (G4BLCommand, type)
@@ -376,7 +385,12 @@ class Converter:
             coil_name = g("coilName") or g("coil")
             coil = self._coils.get(coil_name) if coil_name else None
             if coil is not None:
-                return _to_float(coil.get("length"))
+                clen = _to_float(coil.get("length"))
+                if self.solenoid_field_map:
+                    # Extend the field region to capture the end fringe, which
+                    # carries the solenoid's focusing (radial-field impulse).
+                    return clen + 2.0 * self._solenoid_margin(coil)
+                return clen
             return 0.0
         if t in ("pillbox", "rfdevice"):
             return _to_float(g("innerLength"))
@@ -493,24 +507,99 @@ class Converter:
         return el
 
     def _conv_solenoid(self, name, definition, place, length_mm) -> Element:
-        el = Element(name=name, type="solenoid")
-        el.set("l", (length_mm, "mm"))
         coil_name = definition.get("coilName") or definition.get("coil")
         coil = self._coils.get(coil_name) if coil_name else None
         current = _to_float(self._tuned(definition, place, "current"))
-        b_est = self._estimate_solenoid_B(coil, current) if coil else None
-        if b_est is not None:
-            el.set("B", (b_est, "T"))
-            self.model.warn(
-                f"solenoid '{name}': central field B={b_est:.4g} T estimated "
-                f"from coil current density (thick-solenoid formula); verify "
-                f"against G4beamline field map."
-            )
+
+        # Experimental: full 3D field map of the ported coil field.
+        if self.solenoid_field_map and coil is not None and length_mm > 0:
+            el = self._solenoid_field_map(name, coil, current, length_mm)
+            if el is not None:
+                return el
+
+        # Default: native BDSIM solenoid, with ks derived from the peak on-axis
+        # field of the ported (G4beamline-matched) coil field.  ks needs the
+        # rigidity, so stash the field and resolve ks in _apply_rigidity.
+        el = Element(name=name, type="solenoid")
+        el.set("l", (length_mm, "mm"))
+        b_peak = self._solenoid_peak_field(coil, current) if coil else None
+        if b_peak:
+            el.params["__solenoid_bpeak"] = b_peak
         else:
             self.model.warn(
-                f"solenoid '{name}': could not estimate field (missing coil); "
-                f"set 'ks' or 'B' manually."
+                f"solenoid '{name}': could not model field (missing coil); "
+                f"set 'ks' manually."
             )
+        return el
+
+    @staticmethod
+    def _solenoid_peak_field(coil, current) -> float:
+        """Peak on-axis field [T] of the coil (validated against G4beamline)."""
+        return _solenoid.central_field(
+            _to_float(coil.get("innerRadius")),
+            _to_float(coil.get("outerRadius")),
+            _to_float(coil.get("length")),
+            current)
+
+    def _solenoid_margin(self, coil: G4BLCommand) -> float:
+        """Fringe margin [mm] each side so the field map decays to ~0 at its
+        edges (an abrupt truncation would inject a spurious radial kick).
+
+        Returns the distance beyond the coil end where the on-axis field falls
+        below 1% of the peak, capped to keep the element a sane length.
+        """
+        a1 = _to_float(coil.get("innerRadius"))
+        a2 = _to_float(coil.get("outerRadius"))
+        clen = _to_float(coil.get("length"))
+        current = _to_float(coil.get("current")) or 1.0
+        if a1 <= 0 or a2 <= a1 or clen <= 0:
+            return max(a2, 1.0)
+        field_rz = _solenoid.make_coil_field(a1, a2, clen, current)
+        b0 = abs(field_rz(0.0, 0.0)[1]) or 1.0
+        end = clen / 2.0
+        cap = max(3.0 * a2, 1.5 * clen)     # sane upper bound
+        # Bisect for the distance d where |Bz(0, end+d)| = 0.01*b0.
+        lo, hi = 0.0, cap
+        for _ in range(24):
+            mid = 0.5 * (lo + hi)
+            if abs(field_rz(0.0, end + mid)[1]) > 0.01 * b0:
+                lo = mid
+            else:
+                hi = mid
+        return min(hi, cap)
+
+    def _solenoid_field_map(self, name, coil, current, length_mm):
+        """Build a BDSIM field-map element from the coil's computed field."""
+        a1 = _to_float(coil.get("innerRadius"))
+        a2 = _to_float(coil.get("outerRadius"))
+        clen = _to_float(coil.get("length"))
+        if a1 <= 0 or a2 <= a1 or clen <= 0:
+            return None
+        field_rz = _solenoid.make_coil_field(a1, a2, clen, current)
+        # Transverse extent = the bore; particles stay within it.
+        half = max(a1 * 0.98, 1.0)
+        nx = ny = 21
+        # length_mm already includes the fringe margins (see _element_length_mm);
+        # resolve z finely enough over the whole region.
+        nz = int(max(61, min(161, length_mm / max(a1, 1.0) * 8 + 61)))
+        field_fn, xs, ys, zs = _solenoid.sampled_3d_map(
+            field_rz, half, half, -length_mm / 2.0, length_mm / 2.0, nx, ny, nz)
+        fmap = _fieldmap.build_3d(xs, ys, zs, field_fn)
+        fname = f"{name}.dat"
+        self.model.aux_files[fname] = fmap
+        fobj = f"{name}_field"
+        self.model.field_objects.append(
+            _fieldmap.gmad_field_object(fobj, fname, 3, "linear"))
+        el = Element(name=name, type="drift")
+        el.set("l", (length_mm, "mm"))
+        el.set("fieldAll", fobj)
+        bc = field_rz(0.0, 0.0)[1]
+        el.comment = f"solenoid coil field (map {fname}), B0~{bc:.3g} T"
+        self.model.warn(
+            f"solenoid '{name}': G4beamline coil field ported to BDSIM field "
+            f"map ({fname}); B0~{bc:.3g} T. Fringe is truncated at the coil "
+            f"ends (element length = coil length)."
+        )
         return el
 
     def _estimate_solenoid_B(
@@ -649,6 +738,16 @@ class Converter:
 
     def _resolve_strengths(self, el: Element, brho: Optional[float]) -> None:
         params = el.params
+        if "__solenoid_bpeak" in params:
+            b_peak = params.pop("__solenoid_bpeak")
+            if brho:
+                ks = b_peak / brho          # ks = B / (B*rho)  [m^-1]
+                el.set("ks", ks)
+                el.comment = (f"native solenoid, ks from G4beamline coil field "
+                              f"B0={b_peak:.4g} T (hard-edge approx of the "
+                              f"fringe field)")
+            else:
+                el.comment = f"solenoid B0={b_peak:.4g} T (set ks once Brho known)"
         if "__gradient_T_per_m" in params:
             grad = params.pop("__gradient_T_per_m")
             if brho:

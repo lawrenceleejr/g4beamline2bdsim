@@ -167,6 +167,10 @@ def compare_case(g4bl_path: str, n_events: int, workroot: str,
     model = converter.convert()
     gmad_name = name + ".gmad"
     GmadWriter(model).write(os.path.join(work, gmad_name))
+    # Write auxiliary files (GDML geometry, field maps) next to the GMAD.
+    for fname, content in model.aux_files.items():
+        with open(os.path.join(work, fname), "w") as fh:
+            fh.write(content)
 
     beam_particle = model.beam.get("particle", "proton")
     pdgid = g4bl_ascii.PDGID.get(beam_particle, 2212)

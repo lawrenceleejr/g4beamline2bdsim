@@ -52,6 +52,8 @@ class GmadWriter:
         parts.append(self._header())
         if self.model.warnings:
             parts.append(self._warnings_block())
+        if self.model.field_objects:
+            parts.append(self._field_objects_block())
         parts.append(self._elements_block())
         parts.append(self._line_block())
         parts.append(self._beam_block())
@@ -80,6 +82,11 @@ class GmadWriter:
         lines = ["! ---- conversion warnings ----"]
         for w in self.model.warnings:
             lines.append(f"! WARNING: {w}")
+        return "\n".join(lines)
+
+    def _field_objects_block(self) -> str:
+        lines = ["! ---- field objects (external field maps) ----"]
+        lines.extend(self.model.field_objects)
         return "\n".join(lines)
 
     def _elements_block(self) -> str:
