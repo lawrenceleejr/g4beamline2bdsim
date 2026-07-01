@@ -60,7 +60,7 @@ print(GmadWriter(model).to_string())
 | `idealsectorbend` | `sbend` | geometric `angle` (deg→rad); arc length `R·θ` |
 | `genericsectorbend` | `sbend` (+`k1`) | dipole `angle`/`B`, combined `k1` |
 | `multipole` | `quadrupole`/`sextupole`/`octupole` or combined `multipole` (`knl`) | `kₙ = n!·strengthₙ / Brho` |
-| `solenoid` (+`coil`) | `solenoid` (`ks`) | coil field computed by current-loop superposition (matches G4beamline `printfield` to 4 sig figs); `ks` from the peak field. `--solenoid-field-map` writes the full 3-D field map |
+| `solenoid` (+`coil`) | field map on a `drift` (default) or native `solenoid` | coil field computed by current-loop superposition (matches G4beamline `printfield` to 4 sig figs); **default** = full 3-D field map (g4bl-style); `--no-solenoid-field-map` = native `solenoid` with `ks` from the peak field |
 | `pillbox`, `rfdevice` | `rfcavity` | `E = maxGradient·L`, `frequency` [GHz], `phase` — phase convention differs |
 | `box`, `tubs`, `cylinder`, `sphere`, `polycone` | `element` + **GDML** (or `drift`) | material volumes exported as GDML geometry so they interact with the beam; vacuum → drift; `--no-gdml` forces drifts |
 | `fieldexpr` | field map on a `drift` | analytic `Bx/By/Bz` (or `Br/Bphi/Bz`) sampled onto a BDSIM 3-D field map |
@@ -86,10 +86,11 @@ feature-gap matrix (what maps, what needs a workaround, what has no BDSIM
 equivalent).  Highlights:
 
 * **Solenoids**: the G4beamline coil field is ported exactly (matches
-  `printfield` to 4 sig figs). The default output is a native BDSIM `solenoid`
-  with `ks` from the peak field (robust hard-edge); `--solenoid-field-map`
-  writes the full 3-D fringe field (experimental — Cartesian-map tracking of
-  strong solenoids is delicate).
+  `printfield` to 4 sig figs). **By default** the full 3-D coil field (with
+  fringe) is written as a BDSIM field map — the faithful g4bl-style field.
+  Tracking a *strong* solenoid through a Cartesian map can be inaccurate
+  (interpolation is not exactly divergence-free), so `--no-solenoid-field-map`
+  falls back to a robust native BDSIM `solenoid` with `ks` from the peak field.
 * **RF phase**: G4beamline `phaseAcc` (0° = rising zero-crossing) and BDSIM
   `phase` do not share a zero — check the phase.
 * **Bends and 3-D geometry**: BDSIM follows the reference orbit automatically, so

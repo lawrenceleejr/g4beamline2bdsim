@@ -147,39 +147,38 @@ def test_single_sextupole():
     assert s1.params["k2"] == pytest.approx(2.0 * 50.0 / brho)
 
 
-def test_solenoid_native_ks_default():
-    # By default a solenoid becomes a native BDSIM solenoid with ks derived from
-    # the G4beamline-matched peak coil field.
-    text = """
-    reference referenceMomentum=200 particle=mu+
-    coil C1 innerRadius=300 outerRadius=400 length=500 material=Cu
-    solenoid S coilName=C1 current=80
-    place S rename=S1 z=500
-    """
-    m = convert(text)
-    s1 = get(m, "S1")
-    assert s1.type == "solenoid"
-    # peak field ~5.857 T; ks = B/Brho, Brho = 0.2/0.299792458
-    brho = 0.2 / 0.299792458
-    assert s1.params["ks"] == pytest.approx(5.857 / brho, rel=0.02)
-    assert not m.aux_files
-
-
-def test_solenoid_field_map_optin():
-    # With solenoid_field_map=True the full coil field is written as a map.
+def test_solenoid_field_map_default():
+    # By default (converting from G4beamline) a solenoid becomes the full 3D
+    # coil field written as a BDSIM field map on a drift.
     text = """
     reference referenceMomentum=200 particle=mu+
     coil C1 innerRadius=300 outerRadius=400 length=500 material=Cu
     solenoid S coilName=C1 current=80
     place S rename=S1 z=1500
     """
-    cmds, _ = parse_g4bl(text)
-    m = Converter(cmds, solenoid_field_map=True).convert()
+    m = convert(text)
     s1 = get(m, "S1")
     assert s1.type == "drift"
     assert s1.params["fieldAll"] == "S1_field"
     assert "S1.dat" in m.aux_files
     assert m.aux_files["S1.dat"].startswith("xmin>")
+
+
+def test_solenoid_native_ks_optout():
+    # With solenoid_field_map=False, fall back to a native solenoid + ks.
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    coil C1 innerRadius=300 outerRadius=400 length=500 material=Cu
+    solenoid S coilName=C1 current=80
+    place S rename=S1 z=500
+    """
+    cmds, _ = parse_g4bl(text)
+    m = Converter(cmds, solenoid_field_map=False).convert()
+    s1 = get(m, "S1")
+    assert s1.type == "solenoid"
+    brho = 0.2 / 0.299792458
+    assert s1.params["ks"] == pytest.approx(5.857 / brho, rel=0.02)
+    assert not m.aux_files
 
 
 def test_beam_and_options():

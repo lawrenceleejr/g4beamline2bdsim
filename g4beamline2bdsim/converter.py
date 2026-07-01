@@ -138,7 +138,7 @@ class Converter:
 
     def __init__(self, commands: List[G4BLCommand], source_name: str = "",
                  emit_gdml: bool = True, emit_field_maps: bool = True,
-                 solenoid_field_map: bool = False, base_dir: str = "") -> None:
+                 solenoid_field_map: bool = True, base_dir: str = "") -> None:
         self.commands = commands
         self.source_name = source_name
         # Directory for resolving external files referenced by the input (e.g.
@@ -149,9 +149,11 @@ class Converter:
         self.emit_gdml = emit_gdml
         # When True, fieldexpr formulas are converted to BDSIM field maps.
         self.emit_field_maps = emit_field_maps
-        # When True, a solenoid becomes a full 3D field map of the coil field
-        # (experimental: Cartesian-map tracking of strong solenoids can be
-        # inaccurate).  Default: a native solenoid with ks from the coil field.
+        # When True (default, since we always convert from G4beamline), a
+        # solenoid becomes a full 3D field map of the G4beamline coil field --
+        # the faithful "g4bl-style" field including the end fringe.  Set False
+        # for a native BDSIM solenoid with ks from the peak field (hard-edge,
+        # more robust for very strong solenoids).
         self.solenoid_field_map = solenoid_field_map
         self.model = BdsimModel()
 
@@ -617,17 +619,22 @@ class Converter:
         fname = f"{name}.dat"
         self.model.aux_files[fname] = fmap
         fobj = f"{name}_field"
+        # Cubic interpolation is smoother than linear for the axisymmetric
+        # coil field, reducing divergence errors in the transverse focusing.
         self.model.field_objects.append(
-            _fieldmap.gmad_field_object(fobj, fname, 3, "linear"))
+            _fieldmap.gmad_field_object(fobj, fname, 3, "cubic"))
         el = Element(name=name, type="drift")
         el.set("l", (length_mm, "mm"))
         el.set("fieldAll", fobj)
         bc = field_rz(0.0, 0.0)[1]
-        el.comment = f"solenoid coil field (map {fname}), B0~{bc:.3g} T"
+        el.comment = f"g4bl coil field (map {fname}), B0~{bc:.3g} T"
         self.model.warn(
-            f"solenoid '{name}': G4beamline coil field ported to BDSIM field "
-            f"map ({fname}); B0~{bc:.3g} T. Fringe is truncated at the coil "
-            f"ends (element length = coil length)."
+            f"solenoid '{name}': full G4beamline coil field exported as a BDSIM "
+            f"field map ({fname}, B0~{bc:.3g} T), including the end fringe. "
+            f"NOTE: tracking a strong solenoid through a Cartesian field map can "
+            f"be inaccurate (interpolation is not exactly divergence-free); "
+            f"validate against G4beamline, or use --no-solenoid-field-map for a "
+            f"robust native BDSIM solenoid."
         )
         return el
 

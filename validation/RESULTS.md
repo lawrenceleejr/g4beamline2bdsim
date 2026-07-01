@@ -306,11 +306,12 @@ and verified empirically against BDSIM (a hand-written uniform-field map
 reproduces the analytic deflection to 5 sig figs; a localized-slab map pins the
 position unit to millimetres).
 
-The one honest caveat is the **strong-solenoid field map** (`--solenoid-field-map`):
-the field itself is exact, but tracking a strong axisymmetric field through a
-Cartesian map is delicate (interpolation is not exactly divergence-free), so the
-robust default is the native `solenoid` with `ks` from that exact field — see
-`LIMITATIONS.md` §4.
+Solenoids default to the **full g4bl coil field map** (the faithful field).  The
+one honest caveat: the field itself is exact, but tracking a *strong*
+axisymmetric field through a Cartesian map is delicate (interpolation is not
+exactly divergence-free) and can perturb or blow up the focusing.
+`--no-solenoid-field-map` gives a robust native `solenoid` with `ks` from that
+exact field — see `LIMITATIONS.md` §4.
 
 ---
 
@@ -324,7 +325,7 @@ robust default is the native `solenoid` with `ks` from that exact field — see
 | multi-quad lattice | per-element | **few %** over 16 quads (§3) |
 | dipole `B`/angle | `B` or geometric angle | **0.2–0.5 %** (§2.5) |
 | beam (particle, p, σ, centroid) | direct | exact |
-| solenoid | ported coil field → native `ks` | field **4 sig figs** (§5c); hard-edge focusing ~10–20 % for strong solenoids |
+| solenoid | ported coil field → field map (default) or native `ks` | field **4 sig figs** (§5c); default is the full g4bl field map — strong-solenoid Cartesian-map tracking needs validation (use `--no-solenoid-field-map` for robust hard-edge `ks`) |
 | RF cavity | `E`, `f`; phase convention differs | runs; check phase |
 | material target/collimator/solid | GDML geometry | energy loss & scattering **< 0.1 %** (§5c) |
 | `fieldexpr` (analytic field) | auto field map | **5 sig figs** (§5c) |

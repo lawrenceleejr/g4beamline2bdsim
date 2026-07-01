@@ -46,10 +46,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Do not generate BDSIM field maps for fieldexpr formulas",
     )
     p.add_argument(
-        "--solenoid-field-map",
+        "--no-solenoid-field-map",
         action="store_true",
-        help="Export the full 3D coil field of each solenoid as a BDSIM field "
-             "map (experimental) instead of a native solenoid with ks",
+        help="Use a native BDSIM solenoid with ks (hard-edge) instead of the "
+             "default full 3D G4beamline coil field map (more robust for very "
+             "strong solenoids)",
     )
     p.add_argument(
         "-q",
@@ -81,7 +82,7 @@ def run(argv: Optional[List[str]] = None) -> int:
     converter = Converter(commands, source_name=source_name,
                           emit_gdml=not args.no_gdml,
                           emit_field_maps=not args.no_field_maps,
-                          solenoid_field_map=args.solenoid_field_map,
+                          solenoid_field_map=not args.no_solenoid_field_map,
                           base_dir=base_dir)
     model = converter.convert()
     model.line_name = args.line_name
