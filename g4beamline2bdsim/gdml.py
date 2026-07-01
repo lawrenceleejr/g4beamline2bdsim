@@ -102,6 +102,35 @@ def box_gdml(width_mm: float, height_mm: float, length_mm: float,
     return _gdml_document(solid, "target_solid", material, wx, wy, wz)
 
 
+def sphere_gdml(inner_r_mm: float, outer_r_mm: float, material: str,
+                start_phi_deg: float = 0.0, delta_phi_deg: float = 360.0,
+                start_theta_deg: float = 0.0, delta_theta_deg: float = 180.0) -> str:
+    """GDML for a sphere/spherical shell (mm, degrees), centred on the origin."""
+    solid = (f'    <sphere name="target_solid" rmin="{inner_r_mm:.6g}" '
+             f'rmax="{outer_r_mm:.6g}" startphi="{start_phi_deg:.6g}" '
+             f'deltaphi="{delta_phi_deg:.6g}" starttheta="{start_theta_deg:.6g}" '
+             f'deltatheta="{delta_theta_deg:.6g}" aunit="deg" lunit="mm"/>')
+    w = max(2.0 * outer_r_mm, 1.0) * 1.2 + 20.0
+    return _gdml_document(solid, "target_solid", material, w, w, w)
+
+
+def polycone_gdml(zs_mm, rin_mm, rout_mm, material: str,
+                  start_phi_deg: float = 0.0, delta_phi_deg: float = 360.0) -> str:
+    """GDML for a polycone.  z positions are recentred about the origin."""
+    zc = 0.5 * (min(zs_mm) + max(zs_mm))
+    planes = "\n".join(
+        f'      <zplane z="{z - zc:.6g}" rmin="{ri:.6g}" rmax="{ro:.6g}"/>'
+        for z, ri, ro in zip(zs_mm, rin_mm, rout_mm))
+    solid = (f'    <polycone name="target_solid" startphi="{start_phi_deg:.6g}" '
+             f'deltaphi="{delta_phi_deg:.6g}" aunit="deg" lunit="mm">\n'
+             f'{planes}\n    </polycone>')
+    rmax = max(rout_mm) if rout_mm else 1.0
+    zext = max(zs_mm) - min(zs_mm) if len(zs_mm) > 1 else 1.0
+    w = max(2.0 * rmax, 1.0) * 1.2 + 20.0
+    wz = max(zext, 1.0) * 1.05 + 5.0
+    return _gdml_document(solid, "target_solid", material, w, w, wz)
+
+
 def tubs_gdml(inner_r_mm: float, outer_r_mm: float, length_mm: float,
               material: str, start_phi_deg: float = 0.0,
               delta_phi_deg: float = 360.0) -> str:

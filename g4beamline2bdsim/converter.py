@@ -28,11 +28,13 @@ rigidity derived from the reference/beam momentum (see :mod:`units`).
 from __future__ import annotations
 
 import math
+import os
 import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from . import blfieldmap as _blfieldmap
 from . import fieldmap as _fieldmap
 from . import gdml as _gdml
 from . import solenoid as _solenoid
@@ -98,6 +100,18 @@ def _to_float(value: Optional[str], default: float = 0.0) -> float:
         return result if result is not None else default
 
 
+def _parse_float_list(value: Optional[str]) -> List[float]:
+    """Parse a comma-separated numeric list (G4beamline list argument)."""
+    if not value:
+        return []
+    out = []
+    for tok in value.replace(";", ",").split(","):
+        tok = tok.strip()
+        if tok:
+            out.append(_to_float(tok))
+    return out
+
+
 def _sanitize(name: str) -> str:
     """Make a valid, non-reserved GMAD identifier from a G4beamline name."""
     cleaned = re.sub(r"[^A-Za-z0-9_]", "_", name)
@@ -124,9 +138,12 @@ class Converter:
 
     def __init__(self, commands: List[G4BLCommand], source_name: str = "",
                  emit_gdml: bool = True, emit_field_maps: bool = True,
-                 solenoid_field_map: bool = False) -> None:
+                 solenoid_field_map: bool = False, base_dir: str = "") -> None:
         self.commands = commands
         self.source_name = source_name
+        # Directory for resolving external files referenced by the input (e.g.
+        # a BLFieldMap file named by a ``fieldmap`` command).
+        self.base_dir = base_dir
         # When True, passive material volumes (box/tubs) become BDSIM elements
         # with external GDML geometry (material interacts); otherwise drifts.
         self.emit_gdml = emit_gdml
@@ -398,6 +415,16 @@ class Converter:
             return _to_float(g("length"))
         if t == "fieldexpr":
             return _to_float(g("length"))
+        if t == "sphere":
+            return 2.0 * _to_float(g("outerRadius"))
+        if t == "polycone":
+            zs = _parse_float_list(g("z"))
+            return (max(zs) - min(zs)) if len(zs) > 1 else 0.0
+        if t == "fieldmap":
+            grid = self._parse_blfieldmap(definition)
+            if grid and len(grid.zs) > 1:
+                return grid.zs[-1] - grid.zs[0]
+            return 0.0
         if t in ("virtualdetector", "detector"):
             return _to_float(g("length"), 1.0)
         return 0.0
@@ -788,6 +815,105 @@ class Converter:
         )
         return el
 
+    def _conv_sphere(self, name, definition, place, length_mm) -> Element:
+        material = definition.get("material")
+        if not self.emit_gdml or _gdml.is_vacuum(material):
+            return self._drift(name, length_mm)
+        g4mat, known = _gdml.map_material(material)
+        g = definition.get
+        gdml_text = _gdml.sphere_gdml(
+            _to_float(g("innerRadius")), _to_float(g("outerRadius")), g4mat,
+            _to_float(g("initialPhi")),
+            (_to_float(g("finalPhi")) - _to_float(g("initialPhi"))) if g("finalPhi") else 360.0,
+            _to_float(g("initialTheta")),
+            (_to_float(g("finalTheta")) - _to_float(g("initialTheta"))) if g("finalTheta") else 180.0)
+        extent = 2.0 * _to_float(g("outerRadius"))
+        return self._gdml_element(name, gdml_text, length_mm, extent, "sphere", g4mat, known)
+
+    def _conv_polycone(self, name, definition, place, length_mm) -> Element:
+        material = definition.get("material")
+        g = definition.get
+        zs = _parse_float_list(g("z"))
+        routs = _parse_float_list(g("outerRadius"))
+        rins = _parse_float_list(g("innerRadius")) or [0.0] * len(zs)
+        if not self.emit_gdml or _gdml.is_vacuum(material) or len(zs) < 2:
+            return self._drift(name, length_mm)
+        if len(rins) < len(zs):
+            rins = rins + [0.0] * (len(zs) - len(rins))
+        g4mat, known = _gdml.map_material(material)
+        gdml_text = _gdml.polycone_gdml(
+            zs, rins, routs, g4mat, _to_float(g("initialPhi")),
+            (_to_float(g("finalPhi")) - _to_float(g("initialPhi"))) if g("finalPhi") else 360.0)
+        extent = 2.0 * (max(routs) if routs else 1.0)
+        return self._gdml_element(name, gdml_text, length_mm, extent, "polycone", g4mat, known)
+
+    def _gdml_element(self, name, gdml_text, length_mm, extent, kind, g4mat, known) -> Element:
+        """Create a BDSIM element backed by generated GDML geometry."""
+        if not known:
+            self.model.warn(
+                f"material on '{name}' mapped to '{g4mat}'; verify it is a "
+                f"valid Geant4/NIST material name.")
+        fname = f"{name}.gdml"
+        self.model.aux_files[fname] = gdml_text
+        el = Element(name=name, type="element")
+        el.set("geometryFile", f"gdml:{fname}")
+        el.set("l", (max(length_mm, 1e-3), "mm"))
+        el.set("horizontalWidth", (round(max(extent, 1.0) * 1.2 + 20.0, 3), "mm"))
+        el.comment = f"{kind} target, material {g4mat}"
+        self.model.warn(
+            f"passive volume '{name}' ({kind}, material={g4mat}) exported as "
+            f"GDML geometry ({fname}); placed on-axis.")
+        return el
+
+    def _parse_blfieldmap(self, definition: G4BLCommand):
+        """Parse (and cache) the BLFieldMap file named by a fieldmap command."""
+        fname = definition.get("filename") or definition.get("file")
+        if not fname:
+            return None
+        if not hasattr(self, "_blmaps"):
+            self._blmaps = {}
+        if fname in self._blmaps:
+            return self._blmaps[fname]
+        path = fname if os.path.isabs(fname) else os.path.join(self.base_dir, fname)
+        grid = None
+        try:
+            if os.path.exists(path):
+                grid = _blfieldmap.parse(path)
+        except Exception:  # noqa: BLE001
+            grid = None
+        self._blmaps[fname] = grid
+        return grid
+
+    def _conv_fieldmap(self, name, definition, place, length_mm) -> Element:
+        grid = self._parse_blfieldmap(definition)
+        fname_in = definition.get("filename") or definition.get("file") or "?"
+        if grid is None:
+            self.model.warn(
+                f"fieldmap '{name}': BLFieldMap file '{fname_in}' not found or "
+                f"not a supported (grid) map; represented as a drift.")
+            return self._drift(name, length_mm)
+        # 'current'/'gradient' on the fieldmap scale B/E (Tunable).
+        scale = _to_float(self._tuned(definition, place, "current"), 1.0) or 1.0
+        base_fn = grid.field_fn()
+        field_fn = (lambda x, y, z: tuple(scale * c for c in base_fn(x, y, z))) \
+            if scale != 1.0 else base_fn
+        fmap = _fieldmap.build_3d(grid.xs, grid.ys, grid.zs, field_fn)
+        fname = f"{name}.dat"
+        self.model.aux_files[fname] = fmap
+        fobj = f"{name}_field"
+        self.model.field_objects.append(
+            _fieldmap.gmad_field_object(fobj, fname, 3, "linear"))
+        el = Element(name=name, type="drift")
+        el.set("l", (length_mm, "mm"))
+        el.set("fieldAll", fobj)
+        el.comment = f"BLFieldMap {fname_in} -> BDSIM map {fname}"
+        note = (" (E-field dropped)" if grid.has_efield else "")
+        self.model.warn(
+            f"fieldmap '{name}': BLFieldMap '{fname_in}' converted to BDSIM "
+            f"field map ({fname}, {len(grid.xs)}x{len(grid.ys)}x{len(grid.zs)})"
+            f"{note}.")
+        return el
+
     def _conv_virtualdetector(self, name, definition, place, length_mm) -> Element:
         el = Element(name=name, type="marker")
         el.comment = "virtualdetector -> sampler"
@@ -1047,9 +1173,6 @@ _VALID_G4_LISTS = {
 # G4beamline commands with no BDSIM/GMAD equivalent -- warn when encountered so
 # the conversion is transparent (see validation/LIMITATIONS.md for workarounds).
 _UNSUPPORTED_COMMANDS = {
-    "fieldmap": "BDSIM supports field maps via a 'field' object, but the "
-                "BLFieldMap file must be converted to a BDSIM field-map format "
-                "and attached to a drift (see LIMITATIONS.md).",
     "spacecharge": "BDSIM is a single-particle tracker; space charge / "
                    "collective effects are not modelled.",
     "helicaldipole": "no standard BDSIM helical-dipole element; approximate "
@@ -1067,7 +1190,8 @@ _UNSUPPORTED_COMMANDS = {
 _DEFINITION_TYPES = {
     "genericbend", "genericquad", "idealsectorbend", "genericsectorbend",
     "multipole", "solenoid", "pillbox", "rfdevice", "tubs", "cylinder",
-    "box", "virtualdetector", "detector", "fieldexpr",
+    "box", "virtualdetector", "detector", "fieldexpr", "sphere", "polycone",
+    "fieldmap",
 }
 
 

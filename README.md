@@ -60,9 +60,11 @@ print(GmadWriter(model).to_string())
 | `idealsectorbend` | `sbend` | geometric `angle` (deg→rad); arc length `R·θ` |
 | `genericsectorbend` | `sbend` (+`k1`) | dipole `angle`/`B`, combined `k1` |
 | `multipole` | `quadrupole`/`sextupole`/`octupole` or combined `multipole` (`knl`) | `kₙ = n!·strengthₙ / Brho` |
-| `solenoid` (+`coil`) | `solenoid` | central `B` **estimated** from current density (thick-solenoid formula) — verify |
+| `solenoid` (+`coil`) | `solenoid` (`ks`) | coil field computed by current-loop superposition (matches G4beamline `printfield` to 4 sig figs); `ks` from the peak field. `--solenoid-field-map` writes the full 3-D field map |
 | `pillbox`, `rfdevice` | `rfcavity` | `E = maxGradient·L`, `frequency` [GHz], `phase` — phase convention differs |
-| `tubs`, `cylinder`, `box` | `element` + **GDML** (or `drift`) | material volumes exported as GDML geometry so they interact with the beam; vacuum → drift; `--no-gdml` forces drifts |
+| `box`, `tubs`, `cylinder`, `sphere`, `polycone` | `element` + **GDML** (or `drift`) | material volumes exported as GDML geometry so they interact with the beam; vacuum → drift; `--no-gdml` forces drifts |
+| `fieldexpr` | field map on a `drift` | analytic `Bx/By/Bz` (or `Br/Bphi/Bz`) sampled onto a BDSIM 3-D field map |
+| `fieldmap` (BLFieldMap) | field map on a `drift` | BLFieldMap grid file parsed and re-written as a BDSIM field map |
 | `virtualdetector`, `detector` | `marker` + `sample` | sampler plane |
 | `beam`, `reference` | `beam` | particle, momentum, gaussian σ's, centroid offsets |
 | `physics` | `option, physicsList=...` | reference lists prefixed `g4` |
@@ -83,20 +85,23 @@ See [`validation/LIMITATIONS.md`](validation/LIMITATIONS.md) for the full
 feature-gap matrix (what maps, what needs a workaround, what has no BDSIM
 equivalent).  Highlights:
 
-* **Solenoids**: BDSIM wants `ks`/`B`; G4beamline defines a coil + current and
-  computes the field map.  We estimate the central on-axis field analytically —
-  good for a starting point, but verify against G4beamline's field.
+* **Solenoids**: the G4beamline coil field is ported exactly (matches
+  `printfield` to 4 sig figs). The default output is a native BDSIM `solenoid`
+  with `ks` from the peak field (robust hard-edge); `--solenoid-field-map`
+  writes the full 3-D fringe field (experimental — Cartesian-map tracking of
+  strong solenoids is delicate).
 * **RF phase**: G4beamline `phaseAcc` (0° = rising zero-crossing) and BDSIM
   `phase` do not share a zero — check the phase.
 * **Bends and 3-D geometry**: BDSIM follows the reference orbit automatically, so
-  `corner`/`cornerarc` are ignored (the magnet carries the bend).  Transverse
-  `x`/`y` placement offsets and rotations are not mapped to the 1-D beamline.
-* **Targets/collimators** (`box`, `tubs`, `cylinder`): exported as GDML geometry
-  so the material interacts with the beam (validated against G4beamline); use
-  `--no-gdml` to force plain drifts.
-* **Not converted** (a warning is emitted): `fieldmap`, `fieldexpr`,
-  `spacecharge`, `helicaldipole`, `tune`, in-language `do`/`if`/`define`.
-* `parent=` (nested) placements are not flattened into the beamline.
+  `corner`/`cornerarc` are ignored. Transverse `x`/`y` placement offsets and
+  rotations are not mapped to the 1-D beamline.
+* **Targets/collimators/solids** (`box`, `tubs`, `cylinder`, `sphere`,
+  `polycone`): exported as GDML geometry so the material interacts (validated);
+  `--no-gdml` forces plain drifts.
+* **Fields**: `fieldexpr` formulas and `fieldmap` (BLFieldMap) files are
+  converted to BDSIM field maps automatically.
+* **Not converted** (a warning is emitted): `spacecharge`, `helicaldipole`,
+  `tune`, in-language `do`/`if`/`define`, `parent=` nested placements.
 
 ## Validation
 

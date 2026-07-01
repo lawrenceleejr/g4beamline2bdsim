@@ -92,7 +92,8 @@ def analyse(path: str, run_bdsim: bool, run_g4bl: bool, workroot: str) -> Result
     # Convert.
     try:
         commands, _ = parse_g4bl(text)
-        model = Converter(commands, source_name=name).convert()
+        model = Converter(commands, source_name=name,
+                          base_dir=os.path.dirname(os.path.abspath(path))).convert()
         r.convert_ok = True
         r.n_elements = len(model.elements)
         r.n_warnings = len(model.warnings)
@@ -105,6 +106,10 @@ def analyse(path: str, run_bdsim: bool, run_g4bl: bool, workroot: str) -> Result
     os.makedirs(work, exist_ok=True)
     gmad = os.path.splitext(name)[0] + ".gmad"
     GmadWriter(model).write(os.path.join(work, gmad))
+    # Write auxiliary files (GDML geometry, field maps) next to the GMAD.
+    for auxname, content in model.aux_files.items():
+        with open(os.path.join(work, auxname), "w") as fh:
+            fh.write(content)
 
     if run_bdsim and r.n_elements > 0:
         script = (f"{BDSIM_ENV}; bdsim --file={gmad} --outfile=o --batch "
