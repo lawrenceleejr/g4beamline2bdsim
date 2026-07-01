@@ -1,0 +1,27 @@
+# Cooling-channel style line with a solenoid and RF cavities (G4beamline)
+# Muon beam, 200 MeV/c.
+
+physics QGSP_BERT
+param Pz=200.0
+
+reference referenceMomentum=$Pz particle=mu+ beamZ=0
+beam gaussian particle=mu+ nEvents=2000 meanMomentum=$Pz \
+     sigmaX=20 sigmaY=20 sigmaXp=0.02 sigmaYp=0.02 sigmaP=10 sigmaT=0.5
+
+# A coil + solenoid (field computed from current density)
+coil C1 innerRadius=300 outerRadius=400 length=500 material=Cu
+solenoid Sol coilName=C1 current=80.0 color=1,1,0
+
+# RF pillbox cavities
+pillbox RF maxGradient=16.0 frequency=0.201 innerLength=430 innerRadius=600 phaseAcc=40
+
+# Combined-function multipole (quad + sextupole)
+multipole MP fieldLength=200 apertureRadius=100 quadrupole=2.0 sextupole=50.0
+
+virtualdetector Det radius=300 length=1
+
+place Sol rename=S1 z=500
+place RF rename=RF1 z=1200
+place RF rename=RF2 z=1800
+place MP rename=M1 z=2400
+place Det rename=DEnd z=3000

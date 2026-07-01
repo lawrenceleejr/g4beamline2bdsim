@@ -1,0 +1,11 @@
+# Focusing-defocusing quadrupole doublet: validates two k1 signs + drifts.
+physics QGSP_BERT
+param Pz=800.0
+reference referenceMomentum=$Pz particle=proton beamZ=0
+beam gaussian particle=proton nEvents=4000 meanMomentum=$Pz beamZ=0 \
+     beamX=8 beamY=8 sigmaX=0.5 sigmaY=0.5 sigmaXp=0.0003 sigmaYp=0.0003 sigmaP=0
+genericquad Q fieldLength=200 ironLength=0 apertureRadius=80 fringe=0 kill=0
+virtualdetector Det radius=400 length=1 format=ascii
+place Q rename=QF gradient=2.5 z=400
+place Q rename=QD gradient=-2.5 z=1000
+place Det rename=DetEnd z=1600

@@ -1,0 +1,14 @@
+# Uniform-field dipole (genericbend -> rbend, B passthrough), lab frame.
+# The on-axis reference proton is deflected by B*L/Brho.  G4beamline tracks the
+# real field; BDSIM's rbend computes the same angle = B*L/Brho.  The detector is
+# left in the lab frame (no cornerarc), so we compare G4beamline's lab-frame
+# deflection against the analytic angle (see validation/check_bend.py).
+physics QGSP_BERT
+param Pz=1000.0
+reference referenceMomentum=$Pz particle=proton beamZ=0
+beam gaussian particle=proton nEvents=400 meanMomentum=$Pz beamZ=0 \
+     sigmaX=0.05 sigmaY=0.05 sigmaXp=0.00003 sigmaYp=0.00003 sigmaP=0
+genericbend D fieldWidth=600 fieldHeight=400 fieldLength=500 ironLength=0 fringe=0 kill=0
+virtualdetector Det radius=2000 length=1 format=ascii
+place D rename=B1 By=0.1 z=1000
+place Det rename=DetEnd z=1700

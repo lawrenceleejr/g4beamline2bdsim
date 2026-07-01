@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "g4beamline2bdsim"
+version = "0.1.0"
+description = "Convert G4beamline input files into BDSIM (GMAD) configurations"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "g4beamline2bdsim contributors" }]
+keywords = ["g4beamline", "bdsim", "gmad", "geant4", "accelerator", "beamline"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.scripts]
+g4beamline2bdsim = "g4beamline2bdsim.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/lawrenceleejr/g4beamline2bdsim"
+
+[tool.setuptools]
+packages = ["g4beamline2bdsim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

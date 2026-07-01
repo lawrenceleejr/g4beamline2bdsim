@@ -1,0 +1,58 @@
+#########################################################
+####                                                 ####
+####  This example fires electrons at a chunk of Al  ####
+####  Born on: 12April2019                           ####
+####                                                 ####
+#########################################################
+
+
+#######################################################
+####  Set the maximum number of events to display  ####
+#######################################################
+g4ui when=4 "/vis/scene/endOfEventAction accumulate 2000"
+
+###########################
+####  Viewing Options  ####
+###########################
+### Draw a coordinate system ###
+# pg21 of User Guide, except the dimensions are in meters, not mm (I think User Guide is incorrect)
+g4ui when=4 "/vis/scene/add/axes 0 0 0.1 0.1"
+
+#########################
+###  Physics Package  ###
+#########################
+physics QGSP_BERT_EMX
+
+################################################
+####  Randomize the seed used for the beam  #### (based on current time in microseconds)
+################################################
+randomseed Time
+
+#################################
+####  Only track electrons?  ####
+#################################
+#trackcuts keep=e-
+
+#####################
+###  Beam Energy  ###
+#####################
+param Ebeam=8.00
+
+###########################
+###  Output .root file  ###
+###########################
+param histoFile=outputFile.root
+
+#######################
+###  (Pencil) Beam  ###
+#######################
+beam gaussian particle=e- firstEvent=1 lastEvent=100 \ 
+meanMomentum=$Ebeam \
+beamX=0.0 beamY=0.0 beamZ=0 \
+sigmaX=0.15 sigmaY=0.15 sigmaXp=0.00 sigmaYp=0.00 \
+sigmaP=0.01*$Ebeam meanT=0.00 sigmaT=0.0
+
+### Detector ###
+detector chunkOfAl radius=50 length=100 material=G4_Al color=1,0.5,0,0.5 format=root coordinates=g perTrack=1
+place chunkOfAl z=100
+
