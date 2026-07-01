@@ -178,11 +178,17 @@ official examples are not lattice/optics tests.**  They fall into:
   detector, so there is nothing to track or compare;
 * **G4beamline-specific physics** (`eloss`, `straggling`, `muscat`,
   `MultipleScattering`, `decay`, `*decay`, `TungstenTarget`) — energy loss,
-  scattering and decay in *materials*, which the converter maps to drifts
-  (material is not transferred), so closure is intentionally not expected;
+  scattering and decay in *materials*; the material is **now** transferred as
+  GDML geometry (§5c), so these do interact in BDSIM;
 * **field maps / analytic fields** (`fieldmap`, `fieldexpr`, `transport`,
-  `g-2`, `helicaldipole`) — fields the converter does not translate;
-* **trackable magnet/drift lattices** — the minority that can close.
+  `g-2`) — **now converted** to BDSIM field maps (§5c); the trackable ones
+  (`transport`, `g-2`) run end-to-end;
+* **trackable magnet/drift lattices** — close quantitatively (§§2–4).
+
+The table below predates the field-map / GDML / extra-solid features, so the
+visualisation-only examples (`fieldexpr`, `fieldmap`, `solenoid`, …) still show
+as `NON-TRACKING` — correctly, since they define *no beam*; but they now
+*convert* (they emit elements/field maps) rather than being dropped.
 
 | example | elems | warns | beam | det | BDSIM runs | class |
 |---|---|---|---|---|---|---|

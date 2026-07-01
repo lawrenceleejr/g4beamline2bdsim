@@ -43,8 +43,9 @@ BDSIM_ENV = ("source /usr/local/bin/geant4.sh 2>/dev/null; "
 
 # Features G4beamline supports that the converter intentionally does not map to
 # the 1-D BDSIM beamline (so closure is not expected if present).
-UNSUPPORTED = ["fieldmap", "fieldexpr", "spacecharge", "helicaldipole",
-               "fieldlines"]
+# Features still not converted to the 1-D BDSIM beamline (fieldmap/fieldexpr are
+# now converted to BDSIM field maps, so they are no longer listed here).
+UNSUPPORTED = ["spacecharge", "helicaldipole", "fieldlines"]
 
 
 @dataclass
