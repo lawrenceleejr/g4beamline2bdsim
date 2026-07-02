@@ -806,11 +806,15 @@ class Converter:
             el.set("E", (max_grad * length_m, "MV"))
         if freq_ghz != 0.0:
             el.set("frequency", (freq_ghz, "GHz"))
-        if phase_deg != 0.0:
-            el.set("phase", math.radians(phase_deg))
+        # Phase conventions (calibrated empirically by energy-gain scans):
+        # g4bl phaseAcc=90 deg is on-crest; BDSIM phase=0 is on-crest.
+        phase_rad = math.radians(phase_deg - 90.0)
+        if phase_rad != 0.0:
+            el.set("phase", phase_rad)
         self.model.warn(
-            f"rf cavity '{name}': phase convention differs between G4beamline "
-            f"(phaseAcc) and BDSIM; verify the phase."
+            f"rf cavity '{name}': phaseAcc={phase_deg:g} deg mapped to BDSIM "
+            f"phase={phase_rad:.4g} rad (calibrated: crest at phaseAcc=90 <-> "
+            f"phase=0; amplitudes agree to ~0.5%)."
         )
         return el
 

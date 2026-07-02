@@ -115,7 +115,8 @@ def test_pillbox_to_rfcavity():
     assert rf.params["frequency"] == (0.201, "GHz")
     # E = gradient[MV/m] * length[m]
     assert rf.params["E"][0] == pytest.approx(16 * 0.430)
-    assert rf.params["phase"] == pytest.approx(math.radians(40))
+    # calibrated convention: crest at phaseAcc=90 (g4bl) <-> phase=0 (BDSIM)
+    assert rf.params["phase"] == pytest.approx(math.radians(40 - 90))
 
 
 def test_multipole_combined_function():
