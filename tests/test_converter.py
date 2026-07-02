@@ -336,3 +336,70 @@ def test_weak_genericbend_stays_rbend():
     m = convert(text)
     assert get(m, "B1").type == "rbend"
     assert "__bend_check" not in get(m, "B1").params
+
+
+def test_offset_quad_becomes_feeddown_kickers():
+    # BDSIM offsetX does not displace the magnet field, so an offset quad is
+    # converted to an on-axis quad + entrance/exit thin kickers (feed-down).
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    genericquad Q fieldLength=300
+    place Q rename=Q1 gradient=3 z=500 x=8
+    """
+    m = convert(text)
+    q1 = get(m, "Q1")
+    assert "offsetX" not in q1.params
+    kin = get(m, "Q1_okick_in")
+    kout = get(m, "Q1_okick_out")
+    assert kin is not None and kout is not None
+    brho = 1.0 / 0.299792458
+    expected_half = 0.5 * (3.0 / brho) * 0.3 * 0.008   # 0.5*k1*L*dx
+    assert kin.params["hkick"] == pytest.approx(expected_half)
+    assert kout.params["hkick"] == pytest.approx(expected_half)
+    # ordering in the line: kick_in, quad, kick_out
+    i_in, i_q, i_out = (m.line.index("Q1_okick_in"), m.line.index("Q1"),
+                        m.line.index("Q1_okick_out"))
+    assert i_in < i_q < i_out
+
+
+def test_offset_gdml_element_uses_offsetX():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    box T width=50 height=50 length=100 material=Cu
+    place T rename=T1 z=500 x=25 y=-10
+    """
+    m = convert(text)
+    t1 = get(m, "T1")
+    assert t1.params["offsetX"] == (25.0, "mm")
+    assert t1.params["offsetY"] == (-10.0, "mm")
+
+
+def test_place_rotation_z_maps_to_tilt():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    genericquad Q fieldLength=300
+    place Q rename=Q1 gradient=1 z=500 rotation=Z30
+    """
+    m = convert(text)
+    assert get(m, "Q1").params["tilt"] == pytest.approx(math.radians(30))
+
+
+def test_place_rotation_xy_warns():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    genericbend D fieldLength=500
+    place D rename=B1 By=0.1 z=1000 rotation=Y30
+    """
+    m = convert(text)
+    assert "tilt" not in get(m, "B1").params
+    assert any("Y30" in w for w in m.warnings)
+
+
+def test_marker_placement_offset_ignored():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    virtualdetector V radius=100 length=1
+    place V rename=Det z=500 x=10
+    """
+    m = convert(text)
+    assert "offsetX" not in get(m, "Det").params

@@ -370,6 +370,7 @@ class Converter:
         element = self._build_element(final_name, definition, cmd, length_mm)
         if element is None:
             return
+        self._apply_transverse_placement(element, cmd)
 
         # Longitudinal position.
         z_entry = self._placement_z_entry(cmd, definition, length_mm)
@@ -385,6 +386,66 @@ class Converter:
                 is_sampler=is_sampler,
             )
         )
+
+    # Matches one rotation token like Y90 or Z-30.5 (g4bl rotation syntax).
+    _ROT_TOKEN = re.compile(r"^([XYZ])(-?[0-9.eE+]+)$")
+
+    def _apply_transverse_placement(self, element: Element,
+                                    cmd: G4BLCommand) -> None:
+        """Map ``place x=/y=/rotation=`` onto the BDSIM element.
+
+        * quadrupole offsets become feed-down steering (an offset quad is an
+          on-axis quad plus a dipole kick); BDSIM's ``offsetX`` does NOT move
+          the tracking field, so thin kickers are injected instead (resolved
+          in :meth:`_apply_rigidity` once k1 is known).
+        * GDML ``element`` offsets displace the geometry -- exactly right for
+          a passive target -- so ``offsetX``/``offsetY`` are used directly.
+        * a rotation about the beam axis (``Z<deg>``) maps to ``tilt`` [rad];
+          X/Y rotations have no 1-D equivalent and are warned (for bends the
+          ``Y(angle/2)`` convention accompanies a ``corner`` and is expected).
+        """
+        if element.type == "marker":
+            return                      # samplers cannot carry offsets
+        x = _to_float(cmd.get("x"))
+        y = _to_float(cmd.get("y"))
+        if x != 0.0 or y != 0.0:
+            if element.type == "quadrupole":
+                element.params["__offset_dx_mm"] = x
+                element.params["__offset_dy_mm"] = y
+            elif element.type == "element":
+                if x != 0.0:
+                    element.set("offsetX", (x, "mm"))
+                if y != 0.0:
+                    element.set("offsetY", (y, "mm"))
+            else:
+                self.model.warn(
+                    f"'{element.name}': transverse placement offset "
+                    f"(x={x:g}, y={y:g} mm) on a '{element.type}' is not "
+                    f"mapped (only quadrupole feed-down and GDML geometry "
+                    f"offsets are supported)."
+                )
+        rotation = cmd.get("rotation")
+        if not rotation:
+            return
+        tilt = 0.0
+        unmapped = []
+        for token in rotation.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            m = self._ROT_TOKEN.match(token)
+            if m and m.group(1) == "Z":
+                tilt += math.radians(_to_float(m.group(2)))
+            else:
+                unmapped.append(token)
+        if tilt != 0.0:
+            element.set("tilt", tilt)
+        if unmapped:
+            self.model.warn(
+                f"'{element.name}': rotation component(s) "
+                f"{','.join(unmapped)} about X/Y cannot be mapped to a 1-D "
+                f"beamline element; ignored."
+            )
 
     def _placement_z_entry(
         self, cmd: G4BLCommand, definition: G4BLCommand, length_mm: float
@@ -1001,9 +1062,54 @@ class Converter:
     # -- rigidity application ----------------------------------------------
     def _apply_rigidity(self) -> None:
         brho = self._brho()
-        for pl in self._placements:
+        for pl in list(self._placements):
             el = pl.element
             self._resolve_strengths(el, brho)
+            self._inject_feeddown_kickers(pl)
+
+    def _inject_feeddown_kickers(self, pl: _Placement) -> None:
+        """Replace a quadrupole's transverse offset with feed-down steering.
+
+        An offset quad is an on-axis quad plus a dipole component
+        ``B = -g*offset``; represented as two thin kickers, half the kick at
+        the entrance and half at the exit (symmetric thin-lens split).
+        Sign convention validated against G4beamline: for gradient g>0 and
+        offset dx>0 a positive particle receives hkick=+k1*L*dx.
+        """
+        el = pl.element
+        dx_mm = el.params.pop("__offset_dx_mm", 0.0)
+        dy_mm = el.params.pop("__offset_dy_mm", 0.0)
+        if dx_mm == 0.0 and dy_mm == 0.0:
+            return
+        k1 = el.params.get("k1")
+        if k1 is None:
+            self.model.warn(
+                f"'{el.name}': offset quadrupole feed-down needs k1 (beam "
+                f"momentum); offset ignored.")
+            return
+        length_m = self._length_m(el)
+        hkick = k1 * length_m * (dx_mm * 1e-3)
+        vkick = -k1 * length_m * (dy_mm * 1e-3)
+        idx = self._placements.index(pl)
+        halves = []
+        for tag, z in (("in", pl.z_entry_mm), ("out", pl.z_entry_mm + pl.length_mm)):
+            kick = Element(name=f"{el.name}_okick_{tag}", type="kicker")
+            kick.set("l", 0)
+            if hkick:
+                kick.set("hkick", 0.5 * hkick)
+            if vkick:
+                kick.set("vkick", 0.5 * vkick)
+            kick.comment = f"feed-down of {el.name} offset ({dx_mm:g},{dy_mm:g}) mm"
+            halves.append(_Placement(name=kick.name, element=kick,
+                                     length_mm=0.0, z_entry_mm=z))
+        # Entrance kicker just before the quad, exit kicker just after.
+        self._placements.insert(idx, halves[0])
+        self._placements.insert(idx + 2, halves[1])
+        self.model.warn(
+            f"'{el.name}': transverse offset ({dx_mm:g},{dy_mm:g}) mm converted "
+            f"to feed-down steering kicks (hkick={hkick:.4g}, "
+            f"vkick={vkick:.4g} split entrance/exit)."
+        )
 
     # Above this implied bend angle [rad] an rbend's pole faces (each at
     # angle/2) would overlap for typical lengths; use an sbend instead.
