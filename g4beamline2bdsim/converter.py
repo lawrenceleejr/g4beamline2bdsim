@@ -577,7 +577,8 @@ class Converter:
         edges (an abrupt truncation would inject a spurious radial kick).
 
         Returns the distance beyond the coil end where the on-axis field falls
-        below 1% of the peak, capped to keep the element a sane length.
+        below 0.1% of the peak (the truncated tail integral then contributes a
+        negligible Larmor-phase error), capped to keep the element sane.
         """
         a1 = _to_float(coil.get("innerRadius"))
         a2 = _to_float(coil.get("outerRadius"))
@@ -588,12 +589,12 @@ class Converter:
         field_rz = _solenoid.make_coil_field(a1, a2, clen, current)
         b0 = abs(field_rz(0.0, 0.0)[1]) or 1.0
         end = clen / 2.0
-        cap = max(3.0 * a2, 1.5 * clen)     # sane upper bound
-        # Bisect for the distance d where |Bz(0, end+d)| = 0.01*b0.
+        cap = max(6.0 * a2, 2.0 * clen)     # sane upper bound
+        # Bisect for the distance d where |Bz(0, end+d)| = 0.001*b0.
         lo, hi = 0.0, cap
-        for _ in range(24):
+        for _ in range(28):
             mid = 0.5 * (lo + hi)
-            if abs(field_rz(0.0, end + mid)[1]) > 0.01 * b0:
+            if abs(field_rz(0.0, end + mid)[1]) > 0.001 * b0:
                 lo = mid
             else:
                 hi = mid
@@ -609,10 +610,10 @@ class Converter:
         field_rz = _solenoid.make_coil_field(a1, a2, clen, current)
         # Transverse extent = the bore; particles stay within it.
         half = max(a1 * 0.98, 1.0)
-        nx = ny = 21
+        nx = ny = 33
         # length_mm already includes the fringe margins (see _element_length_mm);
         # resolve z finely enough over the whole region.
-        nz = int(max(61, min(161, length_mm / max(a1, 1.0) * 8 + 61)))
+        nz = int(max(101, min(261, length_mm / max(a1, 1.0) * 12 + 101)))
         field_fn, xs, ys, zs = _solenoid.sampled_3d_map(
             field_rz, half, half, -length_mm / 2.0, length_mm / 2.0, nx, ny, nz)
         fmap = _fieldmap.build_3d(xs, ys, zs, field_fn)
@@ -629,12 +630,10 @@ class Converter:
         bc = field_rz(0.0, 0.0)[1]
         el.comment = f"g4bl coil field (map {fname}), B0~{bc:.3g} T"
         self.model.warn(
-            f"solenoid '{name}': full G4beamline coil field exported as a BDSIM "
-            f"field map ({fname}, B0~{bc:.3g} T), including the end fringe. "
-            f"NOTE: tracking a strong solenoid through a Cartesian field map can "
-            f"be inaccurate (interpolation is not exactly divergence-free); "
-            f"validate against G4beamline, or use --no-solenoid-field-map for a "
-            f"robust native BDSIM solenoid."
+            f"solenoid '{name}': full G4beamline coil field (incl. end fringe) "
+            f"exported as BDSIM field map {fname}, B0~{bc:.3g} T. Tracking "
+            f"validated against G4beamline to ~1% Larmor phase; use "
+            f"--no-solenoid-field-map for a hard-edge native solenoid instead."
         )
         return el
 

@@ -28,8 +28,10 @@ converter agree to the level set by those modelling differences.
 | Multi-element lattice (16 quads) | envelope to **few %**, centroid **< 0.4 mm** | §3 |
 | Dipole bend angle | **0.2–0.5 %** | §2.5 |
 | Wide beam in a drift (official Example1) | envelope to **< 0.1 mm** (Det1–3) | §4 |
-| Material targets / collimators | **not modelled** (mapped to drift, by design) | §5b |
-| Field maps / analytic fields / space charge | **not converted** | §5 |
+| Material targets / collimators | GDML export — energy loss & scattering to **< 0.1 %** | §5b, §5c |
+| Solenoid (full g4bl coil field map) | centroid **≤ 0.1 mm** (2 T); ~1 % phase (6 T) | §5c |
+| `fieldexpr` / BLFieldMap → field maps | **5 sig figs** / exact round-trip | §5c |
+| Space charge / scripting loops | **not converted** | §5 |
 
 Of the **44 lattices tested** (35 shipped with G4beamline + 9 curated), **20 run
 end-to-end in both codes**, 13 are field-line visualisations with no beam to
@@ -297,21 +299,27 @@ both codes:
 | feature | conversion | validation |
 |---|---|---|
 | **Material target** (`box`/`tubs`/… of a material) | GDML `element` | 100 mm W, 2 GeV/c p: G4beamline 62/200 survive, ⟨E⟩ 1.978 GeV, σx 17.48 mm vs **BDSIM 67/200, 1.980 GeV, 17.49 mm** |
-| **`fieldexpr`** (analytic field) | auto-sampled BDSIM 3-D field map | uniform `By`: mean `xp` −0.014987 (BDSIM) vs −0.014986 (G4beamline) — **5 sig figs** |
+| **`fieldexpr`** uniform | auto-sampled BDSIM 3-D field map | uniform `By`: mean `xp` matches G4beamline to **5 sig figs** |
+| **`fieldexpr`** spatially varying | auto-sampled field map | quad expression `By=0.003*x, Bx=0.003*y`: focused centroid & angle match G4beamline to **5×10⁻⁶ rad / 0.01 mm** |
 | **`fieldmap`** (BLFieldMap file) | parsed → BDSIM field map | uniform `By` round-trip: mean `xp` −0.011992 = analytic `B·L/Bρ` exactly |
-| **Solenoid coil field** (`coil`+`current`) | ported field → native `ks` | on-axis `Bz` vs G4beamline `printfield`: 2.0907 vs 2.0906, 1.1913 vs 1.1913, 0.1808 vs 0.1810 T (**4 sig figs** across the profile) |
+| **Solenoid coil field** (`coil`+`current`) | ported field → **full 3-D field map** (default) | field: on-axis `Bz` vs `printfield` to **4 sig figs**. Tracking: B₀≈2.1 T µ⁺ — centroid to **≤0.1 mm**, all observables pass; B₀≈6.3 T (Larmor >3 rad) — all observables pass, phase to ~1 % |
 
-The field-map ASCII format used for the middle two rows was reverse-engineered
-and verified empirically against BDSIM (a hand-written uniform-field map
-reproduces the analytic deflection to 5 sig figs; a localized-slab map pins the
-position unit to millimetres).
+### The field-map format, verified against the loader source
 
-Solenoids default to the **full g4bl coil field map** (the faithful field).  The
-one honest caveat: the field itself is exact, but tracking a *strong*
-axisymmetric field through a Cartesian map is delicate (interpolation is not
-exactly divergence-free) and can perturb or blow up the focusing.
-`--no-solenoid-field-map` gives a robust native `solenoid` with `ks` from that
-exact field — see `LIMITATIONS.md` §4.
+The BDSIM field-map ASCII format is: header positions in **centimetres**, data
+rows in **`xyzt` loop order (x varies fastest)**, field values in Tesla —
+confirmed directly in `src/BDSFieldLoaderBDSIM.cc` and by a maximally
+discriminating tracking test (a quadrupole-gradient map reproduces the thick-quad
+analytic transfer to 5 sig figs; a transposed or mis-scaled map fails this by
+construction).
+
+An earlier revision of this report described strong-solenoid field-map tracking
+as unreliable.  That conclusion was wrong: the converter was writing maps in mm
+with z-fastest ordering, which BDSIM read as a spatially scrambled field.  The
+uniform-field and slab tests used to "validate" the old format were
+permutation/scale-invariant and therefore blind to the bug — a useful lesson in
+choosing discriminating observables.  With the format corrected, the full
+g4bl-style solenoid field map is the default and closes as tabulated above.
 
 ---
 
@@ -325,7 +333,7 @@ exact field — see `LIMITATIONS.md` §4.
 | multi-quad lattice | per-element | **few %** over 16 quads (§3) |
 | dipole `B`/angle | `B` or geometric angle | **0.2–0.5 %** (§2.5) |
 | beam (particle, p, σ, centroid) | direct | exact |
-| solenoid | ported coil field → field map (default) or native `ks` | field **4 sig figs** (§5c); default is the full g4bl field map — strong-solenoid Cartesian-map tracking needs validation (use `--no-solenoid-field-map` for robust hard-edge `ks`) |
+| solenoid | ported coil field → full field map (default) | field **4 sig figs**; tracking **≤0.1 mm** (2 T), ~1 % phase (6 T) (§5c) |
 | RF cavity | `E`, `f`; phase convention differs | runs; check phase |
 | material target/collimator/solid | GDML geometry | energy loss & scattering **< 0.1 %** (§5c) |
 | `fieldexpr` (analytic field) | auto field map | **5 sig figs** (§5c) |

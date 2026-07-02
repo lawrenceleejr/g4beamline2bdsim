@@ -6,14 +6,27 @@ from g4beamline2bdsim.parser import parse_g4bl
 
 
 def test_fieldmap_writer_3d_format():
-    xs, ys, zs = [-1.0, 0.0, 1.0], [-1.0, 1.0], [-2.0, 0.0, 2.0]
+    # Format per BDSFieldLoaderBDSIM.cc: positions in cm, x varies fastest.
+    xs, ys, zs = [-10.0, 0.0, 10.0], [-10.0, 10.0], [-20.0, 0.0, 20.0]
     text = fieldmap.build_3d(xs, ys, zs, lambda x, y, z: (0.0, 0.5, 0.0))
-    assert text.startswith("xmin> -1")
+    assert text.startswith("xmin> -1")            # -10 mm -> -1 cm
+    assert "xmax> 1\n" in text
+    assert "zmin> -2" in text and "zmax> 2" in text
     assert "nx> 3" in text and "ny> 2" in text and "nz> 3" in text
-    assert "! X\tY\tZ\tFx\tFy\tFz" in text
-    # loop order: X outer, Y mid, Z inner -> first 3 data rows share x,y, vary z
+    assert "loopOrder> xyzt" in text
     rows = [l for l in text.splitlines() if l and (l[0].isdigit() or l[0] == "-")]
     assert len(rows) == 3 * 2 * 3
+    # x fastest: first three rows share y,z and step through x = -1, 0, 1 cm.
+    first_x = [float(r.split()[0]) for r in rows[:3]]
+    assert first_x == [-1.0, 0.0, 1.0]
+    first_z = {float(r.split()[2]) for r in rows[:6]}
+    assert first_z == {-2.0}                       # z constant over first y,x block
+
+
+def test_fieldmap_positions_written_in_cm():
+    xs = ys = zs = [-100.0, 100.0]                 # mm
+    text = fieldmap.build_3d(xs, ys, zs, lambda x, y, z: (0.0, 0.0, 1.0))
+    assert "xmin> -10" in text and "xmax> 10" in text   # cm
 
 
 def test_gmad_field_object():

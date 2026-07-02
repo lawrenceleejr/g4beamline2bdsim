@@ -19,6 +19,11 @@ from __future__ import annotations
 import math
 from typing import Callable, List, Tuple
 
+try:                                    # optional accelerator
+    import numpy as _np
+except ImportError:                     # pragma: no cover - environment specific
+    _np = None
+
 MU0 = 4.0e-7 * math.pi          # T*m / A
 
 
@@ -97,6 +102,9 @@ def make_coil_field(inner_r_mm: float, outer_r_mm: float, length_mm: float,
     # Current per loop = J * (cross-sectional area element).
     dI = J * da * dz
 
+    if _np is not None:
+        return _make_coil_field_np(radii, zpos, dI)
+
     def field(r_mm: float, z_mm: float) -> Tuple[float, float]:
         r = r_mm * 1e-3
         z = z_mm * 1e-3
@@ -108,6 +116,53 @@ def make_coil_field(inner_r_mm: float, outer_r_mm: float, length_mm: float,
                 br += lbr
                 bz += lbz
         return br, bz
+
+    return field
+
+
+def _make_coil_field_np(radii, zpos, dI):
+    """Vectorised (numpy) version of the current-loop superposition."""
+    a = _np.repeat(_np.asarray(radii), len(zpos))          # loop radii   [m]
+    zc = _np.tile(_np.asarray(zpos), len(radii))           # loop centres [m]
+    a2 = a * a
+
+    def _ke(m):
+        """Vectorised complete elliptic integrals K(m), E(m) via the AGM."""
+        m = _np.clip(m, 0.0, 1.0 - 1e-12)
+        x = _np.ones_like(m)
+        b = _np.sqrt(1.0 - m)
+        s = 0.5 * m
+        p = 1.0
+        for _ in range(40):
+            xn = 0.5 * (x + b)
+            bn = _np.sqrt(x * b)
+            cn = 0.5 * (x - b)
+            s = s + p * cn * cn
+            p *= 2.0
+            x, b = xn, bn
+            if float(_np.max(_np.abs(cn))) < 1e-15:
+                break
+        K = math.pi / (2.0 * x)
+        E = K * (1.0 - s)
+        return K, E
+
+    def field(r_mm: float, z_mm: float) -> Tuple[float, float]:
+        r = r_mm * 1e-3
+        z = z_mm * 1e-3
+        dzv = z - zc
+        z2 = dzv * dzv
+        if r < 1e-9:
+            denom = (a2 + z2) ** 1.5
+            bz = MU0 * dI * _np.sum(a2 / (2.0 * denom))
+            return 0.0, float(bz)
+        q = (a + r) ** 2 + z2
+        sq = _np.sqrt(q)
+        K, E = _ke(4.0 * a * r / q)
+        d = _np.maximum((a - r) ** 2 + z2, 1e-18)
+        c = MU0 * dI / (2.0 * math.pi)
+        bz = _np.sum(c / sq * (K + (a2 - r * r - z2) / d * E))
+        br = _np.sum(c * dzv / (r * sq) * (-K + (a2 + r * r + z2) / d * E))
+        return float(br), float(bz)
 
     return field
 
@@ -132,7 +187,7 @@ def sampled_3d_map(field_rz, half_x_mm: float, half_y_mm: float,
                    nx: int, ny: int, nz: int):
     """Build a Cartesian field function from an axisymmetric ``B(r,z)``.
 
-    Returns ``(field_fn, xs, ys, zs)`` ready for :func:`fieldmap.write_3d`.
+    Returns ``(field_fn, xs, ys, zs)`` ready for :func:`fieldmap.build_3d`.
     """
     from .fieldmap import linspace
 
@@ -140,9 +195,11 @@ def sampled_3d_map(field_rz, half_x_mm: float, half_y_mm: float,
     ys = linspace(-half_y_mm, half_y_mm, ny)
     zs = linspace(z_min_mm, z_max_mm, nz)
 
-    # Precompute a (r, z) table and bilinearly interpolate for speed.
+    # Precompute a (r, z) table and bilinearly interpolate for speed.  The
+    # radial table is denser than the Cartesian grid so the interpolation is
+    # not the resolution bottleneck.
     r_max = math.hypot(half_x_mm, half_y_mm)
-    nr = max(nx, ny) + 4
+    nr = 3 * max(nx, ny) + 4
     rs = linspace(0.0, r_max, nr)
     table: List[List[Tuple[float, float]]] = [
         [field_rz(r, z) for z in zs] for r in rs

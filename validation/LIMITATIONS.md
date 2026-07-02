@@ -63,21 +63,21 @@ the coil field (`printfield` on-axis `Bz` agrees to 4 sig figs, including the
 end fringe).  Two delivery modes:
 
 * **Default (converting from G4beamline)** — the **full 3-D coil field** written
-  as a BDSIM field map (cubic interpolation) on a drift, including the end
-  fringe.  This is the faithful "g4bl-style" field.  Caveat: tracking a
-  **strong** solenoid through a *Cartesian* field map is delicate — linear/cubic
-  interpolation of an axisymmetric field is not exactly divergence-free, which
-  can perturb (and, for very strong solenoids, blow up) the transverse focusing.
-  The converter emits a warning to this effect; validate against G4beamline and
-  refine the grid if needed.
+  as a BDSIM field map (cubic interpolation) on a drift, **including the end
+  fringe** out to where the field falls below 0.1 % of the peak.  Tracking
+  through this map is **validated against G4beamline**: a moderate solenoid
+  (B₀ ≈ 2.1 T, 200 MeV/c µ⁺) agrees on the rotated centroid to **≤ 0.1 mm** and
+  a strong one (B₀ ≈ 6.3 T, Larmor rotation > 3 rad) to ~1 % of the rotation
+  phase (all six beam observables within statistical tolerance).
 * **`--no-solenoid-field-map`** — a native BDSIM `solenoid` with `ks = B_peak/Bρ`
-  from the ported field.  Robust and always physical, but hard-edged, so it
-  differs from the real fringe field by the usual hard-edge amount (~10–20 % on
-  the transverse centroid for a strong solenoid).
+  from the ported field.  Hard-edged (no fringe), so ~10–20 % off on the
+  transverse centroid for a strong solenoid, but a simpler single-element model.
 
-Recommendation: use the default for the true field shape (weak/moderate
-solenoids, or when you will validate); switch to `--no-solenoid-field-map` when
-you need guaranteed-robust tracking of a strong solenoid.
+Historical note: an earlier revision reported field-map solenoid tracking as
+unreliable.  That was traced to a **field-map file-format bug in this
+converter** (positions must be in *centimetres* and rows in *x-fastest* order,
+per BDSIM's loader source) — not to BDSIM.  With the format fixed, the map is
+the faithful and recommended representation.
 
 ## 5. Modelling differences (🟡 — closure caveats)
 

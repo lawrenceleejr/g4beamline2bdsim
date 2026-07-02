@@ -86,11 +86,11 @@ feature-gap matrix (what maps, what needs a workaround, what has no BDSIM
 equivalent).  Highlights:
 
 * **Solenoids**: the G4beamline coil field is ported exactly (matches
-  `printfield` to 4 sig figs). **By default** the full 3-D coil field (with
-  fringe) is written as a BDSIM field map — the faithful g4bl-style field.
-  Tracking a *strong* solenoid through a Cartesian map can be inaccurate
-  (interpolation is not exactly divergence-free), so `--no-solenoid-field-map`
-  falls back to a robust native BDSIM `solenoid` with `ks` from the peak field.
+  `printfield` to 4 sig figs). **By default** the full 3-D coil field (with end
+  fringe) is written as a BDSIM field map — the faithful g4bl-style field, with
+  tracking validated against G4beamline (≤ 0.1 mm centroid for a 2 T solenoid,
+  ~1 % Larmor phase for a 6 T one). `--no-solenoid-field-map` gives a hard-edge
+  native BDSIM `solenoid` with `ks` from the peak field instead.
 * **RF phase**: G4beamline `phaseAcc` (0° = rising zero-crossing) and BDSIM
   `phase` do not share a zero — check the phase.
 * **Bends and 3-D geometry**: BDSIM follows the reference orbit automatically, so
