@@ -4,24 +4,27 @@
 ! Source: rf_solenoid.g4bl
 
 ! ---- conversion warnings ----
-! WARNING: solenoid 'S1': central field B=5.856 T estimated from coil current density (thick-solenoid formula); verify against G4beamline field map.
-! WARNING: rf cavity 'RF1': phase convention differs between G4beamline (phaseAcc) and BDSIM; verify the phase.
-! WARNING: rf cavity 'RF2': phase convention differs between G4beamline (phaseAcc) and BDSIM; verify the phase.
+! WARNING: solenoid 'S1': full G4beamline coil field (incl. end fringe) exported as BDSIM field map S1.dat, B0~5.86 T. Tracking validated against G4beamline to ~1% Larmor phase; use --no-solenoid-field-map for a hard-edge native solenoid instead.
+! WARNING: rf cavity 'RF1': phaseAcc=40 deg mapped to BDSIM phase=-0.8727 rad (calibrated: crest at phaseAcc=90 <-> phase=0; amplitudes agree to ~0.5%).
+! WARNING: rf cavity 'RF2': phaseAcc=40 deg mapped to BDSIM phase=-0.8727 rad (calibrated: crest at phaseAcc=90 <-> phase=0; amplitudes agree to ~0.5%).
+! WARNING: element 'RF1' overlaps the previous element by 2165 mm; no drift inserted (check geometry).
+! WARNING: element 'RF2' overlaps the previous element by 1565 mm; no drift inserted (check geometry).
+! WARNING: element 'M1' overlaps the previous element by 850 mm; no drift inserted (check geometry).
+! WARNING: element 'DEnd' overlaps the previous element by 150.5 mm; no drift inserted (check geometry).
+
+! ---- field objects (external field maps) ----
+S1_field: field, type="bmap3d", magneticFile="bdsim3d:S1.dat", magneticInterpolator="cubic";
 
 ! ---- element definitions ----
-drift_1: drift, l=250*mm;
-S1: solenoid, l=500*mm, B=5.856184903*T;
-drift_2: drift, l=235*mm;
-RF1: rfcavity, l=430*mm, E=6.88*MV, frequency=0.201*GHz, phase=0.6981317008;
-drift_3: drift, l=170*mm;
-RF2: rfcavity, l=430*mm, E=6.88*MV, frequency=0.201*GHz, phase=0.6981317008;
-drift_4: drift, l=285*mm;
+S1: drift, l=5300*mm,
+    fieldAll="S1_field";  ! g4bl coil field (map S1.dat), B0~5.86 T
+RF1: rfcavity, l=430*mm, E=6.88*MV, frequency=0.201*GHz, phase=-0.872664626;
+RF2: rfcavity, l=430*mm, E=6.88*MV, frequency=0.201*GHz, phase=-0.872664626;
 M1: multipole, l=200*mm, knl={0.599584916, 29.9792458};
-drift_5: drift, l=499.5*mm;
 DEnd: marker;  ! virtualdetector -> sampler
 
 ! ---- beamline ----
-mainline: line=(drift_1, S1, drift_2, RF1, drift_3, RF2, drift_4, M1, drift_5, DEnd);
+mainline: line=(S1, RF1, RF2, M1, DEnd);
 use, mainline;
 
 ! ---- beam ----
