@@ -17,7 +17,6 @@ Legend for "status":
 |---|---|---|
 | **Space charge / collective effects** (`spacecharge`) | BDSIM is a single-particle Geant4 tracker; particles don't see each other. | None in BDSIM. Use a space-charge code (IMPACT, GPT). |
 | **Reference-particle / strength auto-tuning** (`tune`, `tuneMomentum`, `tuneZ`) | BDSIM only forward-simulates. | Match externally with `pybdsim`/`pymadx`, or set strengths explicitly. |
-| **In-language scripting** (`do` loops, `if/else`, `define` macros) | GMAD has variables/expressions and `include`, but no loops/conditionals/macros. | Generate the lattice with `pybdsim`. (Numeric `param` **arithmetic is** evaluated by the converter, incl. `sqrt`, `^`, `if`, trig.) |
 | **Field-line / field visualisation** (`fieldlines`, `printfield`) | Diagnostic, G4beamline-only. | Use the BDSIM/Geant4 visualiser. |
 | **Helical dipole** (`helicaldipole`) | No standard BDSIM element. | Build from a field map or rotated dipoles. |
 | **Per-region particle filters** (`particlefilter`, `trackcuts keep=`) | No fine-grained keep/kill by species mid-lattice. | Use collimators, `minimumKineticEnergy`, or element kill flags. |
@@ -32,6 +31,10 @@ mostly by generating BDSIM **field maps** or **GDML geometry**:
 
 | Feature | How it is converted | Validation |
 |---|---|---|
+| **Control flow** (`do`/`enddo`, `if`/`elseif`/`else`/`endif`, `define` macros, `include`) | expanded by the parser, semantics matched to the g4bl 3.06 source | MICE_StageVI (113 elements, do-loops + macros) converts and runs |
+| **`material` definitions** (elements by Z/A/density; mass-fraction mixtures) | GDML `<materials>` blocks with recursive components and NIST fallbacks | MICE custom materials (quartz, aerogel, calorimeter…) load in BDSIM |
+| **Transverse `place` offsets** | offset quads → on-axis quad + entrance/exit feed-down kickers (BDSIM's `offsetX` does **not** move magnet fields); GDML targets → `offsetX/Y` | offset-quad steering matches G4beamline to 2×10⁻⁵ rad |
+| **RF phase** (`phaseAcc`) | `phase = phaseAcc − 90°`, calibrated by energy-gain scans | dE agrees to ~0.5 % on- and off-crest |
 | **Material targets/absorbers** (`box`, `tubs`, `cylinder`, `sphere`, `polycone`) | Exported as **GDML** geometry placed as a BDSIM `element` (material interacts) | 100 mm W target: energy loss & scattering match G4beamline to < 0.1 % |
 | **Analytic field expressions** (`fieldexpr`) | Formula(s) `Bx/By/Bz` (box `{x,y,z}`) or `Br/Bphi/Bz` (cylinder `{r,z}`) **auto-sampled onto a BDSIM 3-D field map** on a drift | uniform `By`: deflection matches to 5 sig figs |
 | **BLFieldMap files** (`fieldmap filename=...`) | Parsed (grid format; `normB` scaling, `extend*` mirror symmetry) and **re-written as a BDSIM field map** | round-trip uniform `By` reproduces `B·L/Bρ` exactly |
@@ -42,8 +45,9 @@ mostly by generating BDSIM **field maps** or **GDML geometry**:
 `fieldexpr`, `fieldmap`, and (optionally) `solenoid` all funnel through one
 mechanism: sample/parse a field onto a grid and write a BDSIM field map
 (`g4beamline2bdsim/fieldmap.py`), then attach it to a drift with
-`fieldAll="…"`.  The BDSIM ASCII format was reverse-engineered and verified
-empirically (positions **mm**, field **Tesla**, loop order X-outer→Z-inner).
+`fieldAll="…"`.  The BDSIM ASCII format was verified against the loader source
+(positions **cm**, field **Tesla**, `xyzt` loop order — x varies fastest) and by
+a discriminating quadrupole-gradient tracking test.
 Only **magnetic** fields are exported; `fieldexpr` electric-field terms are
 warned (BDSIM would need an `ebmap`).
 
@@ -84,7 +88,7 @@ the faithful and recommended representation.
 | Area | G4beamline | BDSIM | Effect |
 |---|---|---|---|
 | Magnet fringe/edge | Enge fringe on by default | hard-edge by default | small focusing differences |
-| RF phase | `phaseAcc` (0° = rising zero-crossing) | `rfcavity` `phase` | phase zero differs — verify |
+| RF phase | `phaseAcc` (90° = crest) | `phase` (0 = crest) | **calibrated**: `phase = phaseAcc − 90°`, dE to ~0.5 % |
 | Dipole geometry | box field or sector | `rbend`/`sbend` | strong short bends can exceed BDSIM's `rbend` face geometry |
 | Beam pipe / world | only what you place | always a pipe + yokes | converter sizes the pipe to the apertures |
 | Geant4 version | 10.5 (image) | 11.3 (image) | %-level scattering/energy-loss differences |
