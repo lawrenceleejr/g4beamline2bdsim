@@ -38,6 +38,13 @@ _MATERIAL_MAP = {
     "scintillator": "G4_PLASTIC_SC_VINYLTOLUENE",
     "poly": "G4_POLYETHYLENE", "polyethylene": "G4_POLYETHYLENE",
     "concrete": "G4_CONCRETE", "si": "G4_Si", "silicon": "G4_Si",
+    # G4beamline built-in materials
+    "lh2": "G4_lH2", "h2": "G4_H", "h": "G4_H", "he": "G4_He",
+    "n2": "G4_N", "nitrogen": "G4_N", "ar": "G4_Ar", "argon": "G4_Ar",
+    "li": "G4_Li", "lithium": "G4_Li", "lih": "G4_LITHIUM_HYDRIDE",
+    "stainless316l": "G4_STAINLESS-STEEL", "ni": "G4_Ni", "sn": "G4_Sn",
+    "quartz": "G4_SILICON_DIOXIDE", "sio2": "G4_SILICON_DIOXIDE",
+    "lucite": "G4_LUCITE", "teflon": "G4_TEFLON",
 }
 
 
@@ -51,13 +58,13 @@ def map_material(name: Optional[str]) -> Tuple[str, bool]:
     if not name:
         return "G4_Galactic", True
     raw = name.strip()
-    key = raw.lower().lstrip("g4_")
     if raw.startswith("G4_"):
         return raw, True
-    if raw.lower() in _MATERIAL_MAP:
-        return _MATERIAL_MAP[raw.lower()], True
-    if key in _MATERIAL_MAP:
-        return _MATERIAL_MAP[key], True
+    low = raw.lower()
+    if low in _MATERIAL_MAP:
+        return _MATERIAL_MAP[low], True
+    if low.startswith("g4_") and low[3:] in _MATERIAL_MAP:
+        return _MATERIAL_MAP[low[3:]], True
     return "G4_" + raw, False
 
 

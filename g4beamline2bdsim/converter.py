@@ -742,7 +742,7 @@ class Converter:
         field_fn, xs, ys, zs = _solenoid.sampled_3d_map(
             field_rz, half, half, -length_mm / 2.0, length_mm / 2.0, nx, ny, nz)
         fmap = _fieldmap.build_3d(xs, ys, zs, field_fn)
-        fname = f"{name}.dat"
+        fname = f"{name}.dat.gz"
         self.model.aux_files[fname] = fmap
         fobj = f"{name}_field"
         # Cubic interpolation is smoother than linear for the axisymmetric
@@ -928,7 +928,7 @@ class Converter:
         ys = _fieldmap.linspace(-half_y, half_y, ny)
         zs = _fieldmap.linspace(-length_mm / 2.0, length_mm / 2.0, nz)
         fmap = _fieldmap.build_3d(xs, ys, zs, field_fn)
-        fname = f"{name}.dat"
+        fname = f"{name}.dat.gz"
         self.model.aux_files[fname] = fmap
         fobj = f"{name}_field"
         self.model.field_objects.append(
@@ -1029,7 +1029,7 @@ class Converter:
         field_fn = (lambda x, y, z: tuple(scale * c for c in base_fn(x, y, z))) \
             if scale != 1.0 else base_fn
         fmap = _fieldmap.build_3d(grid.xs, grid.ys, grid.zs, field_fn)
-        fname = f"{name}.dat"
+        fname = f"{name}.dat.gz"
         self.model.aux_files[fname] = fmap
         fobj = f"{name}_field"
         self.model.field_objects.append(

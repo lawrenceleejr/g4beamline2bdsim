@@ -161,8 +161,8 @@ def test_solenoid_field_map_default():
     s1 = get(m, "S1")
     assert s1.type == "drift"
     assert s1.params["fieldAll"] == "S1_field"
-    assert "S1.dat" in m.aux_files
-    assert m.aux_files["S1.dat"].startswith("xmin>")
+    assert "S1.dat.gz" in m.aux_files
+    assert m.aux_files["S1.dat.gz"].startswith("xmin>")
 
 
 def test_solenoid_native_ks_optout():

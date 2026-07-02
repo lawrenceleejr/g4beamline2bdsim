@@ -89,7 +89,7 @@ def test_fieldmap_command_to_map(tmp_path):
     fm1 = m.get_element("FM1")
     assert fm1.type == "drift"
     assert fm1.params["fieldAll"] == "FM1_field"
-    assert "FM1.dat" in m.aux_files
+    assert "FM1.dat.gz" in m.aux_files
 
 
 def test_solenoid_field_matches_g4beamline_profile():

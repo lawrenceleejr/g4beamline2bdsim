@@ -102,8 +102,8 @@ def test_fieldexpr_box_to_map():
     el = m.get_element("F1")
     assert el.type == "drift"
     assert el.params["fieldAll"] == "F1_field"
-    assert "F1.dat" in m.aux_files
-    body = m.aux_files["F1.dat"]
+    assert "F1.dat.gz" in m.aux_files
+    body = m.aux_files["F1.dat.gz"]
     assert body.startswith("xmin>")
     # By ~ 0.1 T everywhere; check a data row has 0.1 in the Fy column.
     assert "1.00000000E-01" in body
@@ -116,7 +116,7 @@ def test_fieldexpr_varying_expression():
     place F rename=F1 z=1000
     """
     m = convert(text)
-    assert "F1.dat" in m.aux_files
+    assert "F1.dat.gz" in m.aux_files
     # field object declared before elements
     assert any("F1_field: field" in fo for fo in m.field_objects)
 

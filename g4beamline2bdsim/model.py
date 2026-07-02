@@ -73,3 +73,20 @@ class BdsimModel:
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
+
+    def write_aux_files(self, out_dir: str) -> None:
+        """Write auxiliary files (GDML, field maps) into *out_dir*.
+
+        Contents are stored as text; names ending in ``.gz`` are written
+        gzip-compressed (BDSIM reads gzipped field maps natively).
+        """
+        import gzip
+        import os
+        for fname, content in self.aux_files.items():
+            path = os.path.join(out_dir, fname)
+            if fname.endswith(".gz"):
+                with gzip.open(path, "wt", encoding="utf-8") as fh:
+                    fh.write(content)
+            else:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(content)

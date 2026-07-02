@@ -109,11 +109,8 @@ def run(argv: Optional[List[str]] = None) -> int:
             out_path = base + ".gmad"
         with open(out_path, "w", encoding="utf-8") as fh:
             fh.write(gmad_text)
-        # Write auxiliary files (GDML geometry) next to the GMAD.
-        out_dir = os.path.dirname(os.path.abspath(out_path))
-        for fname, content in model.aux_files.items():
-            with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as fh:
-                fh.write(content)
+        # Write auxiliary files (GDML geometry, field maps) next to the GMAD.
+        model.write_aux_files(os.path.dirname(os.path.abspath(out_path)))
         if not args.quiet:
             extra = (f" (+ {len(model.aux_files)} auxiliary file(s))"
                      if model.aux_files else "")
