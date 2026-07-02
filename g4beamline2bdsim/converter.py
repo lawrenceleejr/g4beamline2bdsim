@@ -160,6 +160,8 @@ class Converter:
         # element-definition name -> (G4BLCommand, type)
         self._defs: Dict[str, G4BLCommand] = {}
         self._coils: Dict[str, G4BLCommand] = {}
+        # User-defined materials (g4bl 'material' command) for GDML export.
+        self._user_materials: Dict[str, dict] = {}
         self._placements: List[_Placement] = []
         self._used_names: Dict[str, int] = {}
         self._place_counts: Dict[str, int] = {}
@@ -211,6 +213,8 @@ class Converter:
         elif name == "coil":
             if cmd.args:
                 self._coils[cmd.args[0]] = cmd
+        elif name == "material":
+            self._record_material(cmd)
         elif name == "place":
             self._handle_place(cmd)
         elif name == "beam":
@@ -235,6 +239,45 @@ class Converter:
                 f"{_UNSUPPORTED_COMMANDS[name]}"
             )
         # Everything else (g4ui, trace, param, tune, output, ...) is ignored.
+
+    def _record_material(self, cmd: G4BLCommand) -> None:
+        """Record a g4bl 'material' definition (element or mass-fraction mix)."""
+        if not cmd.args:
+            return
+        name = cmd.args[0]
+        d: dict = {}
+        z = cmd.get("Z") or cmd.get("z")
+        a = cmd.get("A") or cmd.get("a") or cmd.get("aaa")
+        if z is not None:
+            d["Z"] = _to_float(z)
+        if a is not None:
+            d["A"] = _to_float(a)
+        if cmd.get("density") is not None:
+            d["density"] = _to_float(cmd.get("density"))
+        if cmd.get("state"):
+            d["state"] = cmd.get("state")
+        comps = []
+        for tok in cmd.args[1:]:
+            if "," in tok:
+                cname, _, frac = tok.partition(",")
+                comps.append((cname.strip(), _to_float(frac)))
+        if comps:
+            d["components"] = comps
+        self._user_materials[name] = d
+
+    def _material_for_gdml(self, material: Optional[str]):
+        """Resolve a material for GDML export.
+
+        Returns (ref_name, materials_xml, known): user-defined materials get a
+        <materials> block; everything else maps to a Geant4/NIST name.
+        """
+        if material and material in self._user_materials:
+            xml, ref, warns = _gdml.material_block(material, self._user_materials)
+            for w in warns:
+                self.model.warn(w)
+            return ref, xml, True
+        g4mat, known = _gdml.map_material(material)
+        return g4mat, "", known
 
     def _record_definition(self, cmd: G4BLCommand) -> None:
         if not cmd.args:
@@ -414,14 +457,15 @@ class Converter:
         if t in ("pillbox", "rfdevice"):
             return _to_float(g("innerLength"))
         if t in ("tubs", "cylinder", "box"):
-            return _to_float(g("length"))
+            return self._gdml_padded(definition, _to_float(g("length")))
         if t == "fieldexpr":
             return _to_float(g("length"))
         if t == "sphere":
-            return 2.0 * _to_float(g("outerRadius"))
+            return self._gdml_padded(definition, 2.0 * _to_float(g("outerRadius")))
         if t == "polycone":
             zs = _parse_float_list(g("z"))
-            return (max(zs) - min(zs)) if len(zs) > 1 else 0.0
+            span = (max(zs) - min(zs)) if len(zs) > 1 else 0.0
+            return self._gdml_padded(definition, span)
         if t == "fieldmap":
             grid = self._parse_blfieldmap(definition)
             if grid and len(grid.zs) > 1:
@@ -430,6 +474,19 @@ class Converter:
         if t in ("virtualdetector", "detector"):
             return _to_float(g("length"), 1.0)
         return 0.0
+
+    def _gdml_padded(self, definition: G4BLCommand, solid_len: float) -> float:
+        """Element length for a passive solid: padded when it becomes GDML.
+
+        The GDML world box is the solid plus ``WORLD_Z_PAD_MM`` each side, and
+        BDSIM requires the loaded geometry to fit inside the element length, so
+        the layout length must carry the same padding (and a 1 mm floor for
+        very thin solids, matching the world-box floor).
+        """
+        material = definition.get("material")
+        if self.emit_gdml and not _gdml.is_vacuum(material):
+            return max(solid_len, 1.0) + 2.0 * _gdml.WORLD_Z_PAD_MM
+        return solid_len
 
     # -- element construction ----------------------------------------------
     def _build_element(
@@ -468,11 +525,17 @@ class Converter:
         return el
 
     def _conv_genericbend(self, name, definition, place, length_mm) -> Element:
-        # Rectangular box field -> rbend, field given directly in Tesla.
+        # Rectangular box field -> rbend, field given directly in Tesla.  For
+        # strong bends the implied angle B*L/Brho can exceed what BDSIM's rbend
+        # geometry supports (pole faces overlap), so the final rbend-vs-sbend
+        # choice is made in _resolve_strengths once the rigidity is known.
         el = Element(name=name, type="rbend")
         el.set("l", (length_mm, "mm"))
         by = _to_float(self._tuned(definition, place, "By"))
         el.set("B", (by, "T"))
+        el.params["__bend_check"] = True
+        el.params["__bend_fw"] = _to_float(definition.get("fieldWidth"))
+        el.params["__bend_fh"] = _to_float(definition.get("fieldHeight"))
         return el
 
     def _conv_idealsectorbend(self, name, definition, place, length_mm) -> Element:
@@ -514,6 +577,7 @@ class Converter:
             el = Element(name=name, type="rbend")
             el.set("l", (length_mm, "mm"))
             el.set("B", (dipole, "T"))
+            el.params["__bend_check"] = True
             return el
         if len(nonzero) == 1 and quad != 0.0:
             el = Element(name=name, type="quadrupole")
@@ -711,17 +775,20 @@ class Converter:
             return self._drift(name, length_mm)
 
         # Material volume -> external GDML geometry so it interacts in BDSIM.
-        g4mat, known = _gdml.map_material(material)
+        g4mat, mats_xml, known = self._material_for_gdml(material)
         if not known:
             self.model.warn(
                 f"material '{material}' on '{name}' mapped to '{g4mat}'; verify "
                 f"it is a valid Geant4/NIST material name."
             )
+        # length_mm is the padded ELEMENT length; the solid keeps its true size.
         g = definition.get
+        solid_len = max(_to_float(g("length")), 1.0)
         if shape == "box":
             width = _to_float(g("width"))
             height = _to_float(g("height"))
-            gdml_text = _gdml.box_gdml(width, height, length_mm, g4mat)
+            gdml_text = _gdml.box_gdml(width, height, solid_len, g4mat,
+                                       materials_xml=mats_xml)
             extent = max(width, height)
         else:
             inner = _to_float(g("innerRadius"))
@@ -729,22 +796,12 @@ class Converter:
             phi0 = _to_float(g("initialPhi"))
             phi1 = g("finalPhi")
             dphi = (_to_float(phi1) - phi0) if phi1 is not None else 360.0
-            gdml_text = _gdml.tubs_gdml(inner, outer, length_mm, g4mat,
-                                        phi0, dphi if dphi else 360.0)
+            gdml_text = _gdml.tubs_gdml(inner, outer, solid_len, g4mat,
+                                        phi0, dphi if dphi else 360.0,
+                                        materials_xml=mats_xml)
             extent = 2.0 * outer
-        fname = f"{name}.gdml"
-        self.model.aux_files[fname] = gdml_text
-        el = Element(name=name, type="element")
-        el.set("geometryFile", f"gdml:{fname}")
-        el.set("l", (length_mm, "mm"))
-        el.set("horizontalWidth", (round(extent * 1.2 + 20.0, 3), "mm"))
-        el.comment = f"{definition.name} target, material {g4mat}"
-        self.model.warn(
-            f"passive volume '{name}' ({definition.name}, material={g4mat}) "
-            f"exported as GDML geometry ({fname}); transverse offsets/rotations "
-            f"are placed on-axis."
-        )
-        return el
+        return self._gdml_element(name, gdml_text, length_mm, extent,
+                                  definition.name, g4mat, True)
 
     def _conv_fieldexpr(self, name, definition, place, length_mm) -> Element:
         """Sample a G4beamline analytic field expression onto a BDSIM map.
@@ -825,14 +882,15 @@ class Converter:
         material = definition.get("material")
         if not self.emit_gdml or _gdml.is_vacuum(material):
             return self._drift(name, length_mm)
-        g4mat, known = _gdml.map_material(material)
+        g4mat, mats_xml, known = self._material_for_gdml(material)
         g = definition.get
         gdml_text = _gdml.sphere_gdml(
             _to_float(g("innerRadius")), _to_float(g("outerRadius")), g4mat,
             _to_float(g("initialPhi")),
             (_to_float(g("finalPhi")) - _to_float(g("initialPhi"))) if g("finalPhi") else 360.0,
             _to_float(g("initialTheta")),
-            (_to_float(g("finalTheta")) - _to_float(g("initialTheta"))) if g("finalTheta") else 180.0)
+            (_to_float(g("finalTheta")) - _to_float(g("initialTheta"))) if g("finalTheta") else 180.0,
+            materials_xml=mats_xml)
         extent = 2.0 * _to_float(g("outerRadius"))
         return self._gdml_element(name, gdml_text, length_mm, extent, "sphere", g4mat, known)
 
@@ -846,10 +904,11 @@ class Converter:
             return self._drift(name, length_mm)
         if len(rins) < len(zs):
             rins = rins + [0.0] * (len(zs) - len(rins))
-        g4mat, known = _gdml.map_material(material)
+        g4mat, mats_xml, known = self._material_for_gdml(material)
         gdml_text = _gdml.polycone_gdml(
             zs, rins, routs, g4mat, _to_float(g("initialPhi")),
-            (_to_float(g("finalPhi")) - _to_float(g("initialPhi"))) if g("finalPhi") else 360.0)
+            (_to_float(g("finalPhi")) - _to_float(g("initialPhi"))) if g("finalPhi") else 360.0,
+            materials_xml=mats_xml)
         extent = 2.0 * (max(routs) if routs else 1.0)
         return self._gdml_element(name, gdml_text, length_mm, extent, "polycone", g4mat, known)
 
@@ -864,7 +923,8 @@ class Converter:
         el = Element(name=name, type="element")
         el.set("geometryFile", f"gdml:{fname}")
         el.set("l", (max(length_mm, 1e-3), "mm"))
-        el.set("horizontalWidth", (round(max(extent, 1.0) * 1.2 + 20.0, 3), "mm"))
+        # 1 mm clearance beyond the GDML world box each side.
+        el.set("horizontalWidth", (round(max(extent, 1.0) * 1.2 + 22.0, 3), "mm"))
         el.comment = f"{kind} target, material {g4mat}"
         self.model.warn(
             f"passive volume '{name}' ({kind}, material={g4mat}) exported as "
@@ -945,8 +1005,46 @@ class Converter:
             el = pl.element
             self._resolve_strengths(el, brho)
 
+    # Above this implied bend angle [rad] an rbend's pole faces (each at
+    # angle/2) would overlap for typical lengths; use an sbend instead.
+    _RBEND_MAX_ANGLE = 0.3
+
     def _resolve_strengths(self, el: Element, brho: Optional[float]) -> None:
         params = el.params
+        if params.pop("__bend_check", None):
+            # genericbend: switch a strong rbend to an sbend so BDSIM can
+            # build the geometry (rbend faces are at angle/2 to the chord).
+            fw = params.pop("__bend_fw", 0.0)
+            fh = params.pop("__bend_fh", 0.0)
+            b_val = params.get("B")
+            b_tesla = b_val[0] if isinstance(b_val, tuple) else _to_float(b_val)
+            length_m = self._length_m(el)
+            if brho and length_m > 0 and b_tesla:
+                angle = abs(b_tesla) * length_m / brho
+                if angle > self._RBEND_MAX_ANGLE:
+                    el.type = "sbend"
+                    # A tightly-curved sbend cannot be wider than a fraction of
+                    # its bend radius (BDSIM's face-overlap check trips at
+                    # ~0.65*rho empirically), so fit the magnet body and
+                    # aperture to the bend radius and g4bl field aperture.
+                    rho_mm = brho / abs(b_tesla) * 1000.0
+                    hw = 0.5 * rho_mm
+                    if fw > 0:
+                        hw = min(hw, max(fw, fh) * 1.2 + 40.0)
+                    aper1 = min(fw / 2.0 if fw > 0 else hw / 2.0 - 10.0,
+                                hw / 2.0 - 10.0)
+                    aper2 = min(fh / 2.0 if fh > 0 else aper1,
+                                hw / 2.0 - 10.0)
+                    el.set("apertureType", "rectangular")
+                    el.set("aper1", (round(aper1, 3), "mm"))
+                    el.set("aper2", (round(aper2, 3), "mm"))
+                    el.set("horizontalWidth", (round(hw, 3), "mm"))
+                    self.model.warn(
+                        f"bend '{el.name}': implied angle {angle:.3g} rad is too "
+                        f"large for BDSIM rbend pole-face geometry; emitted as "
+                        f"sbend (arc) with aperture/width fitted to the bend "
+                        f"radius (may clip more than the g4bl aperture)."
+                    )
         if "__solenoid_bpeak" in params:
             b_peak = params.pop("__solenoid_bpeak")
             if brho:

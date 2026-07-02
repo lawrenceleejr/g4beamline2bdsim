@@ -312,3 +312,27 @@ def test_negative_particle_charge_rigidity():
     m = convert(text)
     brho = 1.0 / 0.299792458
     assert get(m, "Q1").params["k1"] == pytest.approx(3.0 / brho)
+
+
+def test_strong_genericbend_becomes_sbend():
+    # Implied angle B*L/Brho = 2*1.0/0.667 = 3 rad >> rbend limit -> sbend.
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    genericbend D fieldWidth=400 fieldHeight=200 fieldLength=1000
+    place D rename=B1 By=2.0 z=2000
+    """
+    m = convert(text)
+    b1 = get(m, "B1")
+    assert b1.type == "sbend"
+    assert any("too" in w and "sbend" in w for w in m.warnings)
+
+
+def test_weak_genericbend_stays_rbend():
+    text = """
+    reference referenceMomentum=1000 particle=proton
+    genericbend D fieldWidth=400 fieldHeight=200 fieldLength=500
+    place D rename=B1 By=0.5 z=1000
+    """
+    m = convert(text)
+    assert get(m, "B1").type == "rbend"
+    assert "__bend_check" not in get(m, "B1").params

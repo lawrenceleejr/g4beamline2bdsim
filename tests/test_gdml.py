@@ -48,9 +48,12 @@ def test_box_material_becomes_gdml_element():
     el = m.get_element("T1")
     assert el.type == "element"
     assert el.params["geometryFile"] == "gdml:T1.gdml"
-    assert el.params["l"] == (100.0, "mm")
+    # element length = solid length + 2 * world z-padding (0.1 mm each side)
+    assert el.params["l"][0] == pytest.approx(100.2)
     assert "T1.gdml" in m.aux_files
     assert "G4_W" in m.aux_files["T1.gdml"]
+    # the solid keeps its true 100 mm length inside the GDML
+    assert 'z="100"' in m.aux_files["T1.gdml"]
 
 
 def test_cylinder_material_becomes_gdml_element():
@@ -126,3 +129,38 @@ def test_fieldexpr_efield_warns():
     """
     m = convert(text)
     assert any("electric-field" in w for w in m.warnings)
+
+
+def test_user_defined_material_in_gdml():
+    # g4bl 'material' definitions become GDML <materials> blocks.
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    material Si Z=14 A=28.086 density=2.33
+    material O Z=8 A=15.999 density=0.001
+    material quartz density=2.20 Si,0.467 O,0.533
+    box T width=50 height=50 length=20 material=quartz
+    place T rename=T1 z=500
+    """
+    m = convert(text)
+    el = m.get_element("T1")
+    assert el.type == "element"
+    g = m.aux_files["T1.gdml"]
+    assert "<materials>" in g
+    assert '<material name="quartz"' in g
+    assert '<fraction n="0.467" ref="Si"/>' in g
+    assert '<material name="Si" Z="14"' in g
+    assert '<materialref ref="quartz"/>' in g
+
+
+def test_user_material_mixture_of_nist_and_user():
+    text = """
+    reference referenceMomentum=200 particle=mu+
+    material calorimeter density=3.7 Pb,0.85 scintillator,0.15
+    box T width=50 height=50 length=20 material=calorimeter
+    place T rename=T1 z=500
+    """
+    m = convert(text)
+    g = m.aux_files["T1.gdml"]
+    # Pb and scintillator are not user-defined -> NIST refs
+    assert 'ref="G4_Pb"' in g
+    assert 'ref="G4_PLASTIC_SC_VINYLTOLUENE"' in g
