@@ -92,7 +92,7 @@ def analyse(path: str, run_bdsim: bool, run_g4bl: bool, workroot: str) -> Result
 
     # Convert.
     try:
-        commands, _ = parse_g4bl(text)
+        commands, _ = parse_g4bl(text, base_dir=os.path.dirname(os.path.abspath(path)))
         model = Converter(commands, source_name=name,
                           base_dir=os.path.dirname(os.path.abspath(path))).convert()
         r.convert_ok = True

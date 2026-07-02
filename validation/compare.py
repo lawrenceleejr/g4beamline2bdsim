@@ -162,7 +162,7 @@ def compare_case(g4bl_path: str, n_events: int, workroot: str,
 
     # Convert.
     text = open(g4bl_path).read()
-    commands, _ = parse_g4bl(text)
+    commands, _ = parse_g4bl(text, base_dir=os.path.dirname(os.path.abspath(g4bl_path)))
     converter = Converter(commands, source_name=g4bl_name,
                           base_dir=os.path.dirname(os.path.abspath(g4bl_path)))
     model = converter.convert()

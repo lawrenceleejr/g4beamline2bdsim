@@ -77,8 +77,8 @@ def run(argv: Optional[List[str]] = None) -> int:
             text = fh.read()
         source_name = os.path.basename(args.input)
 
-    commands, _params = parse_g4bl(text)
     base_dir = "" if args.input == "-" else os.path.dirname(os.path.abspath(args.input))
+    commands, _params = parse_g4bl(text, base_dir=base_dir)
     converter = Converter(commands, source_name=source_name,
                           emit_gdml=not args.no_gdml,
                           emit_field_maps=not args.no_field_maps,
